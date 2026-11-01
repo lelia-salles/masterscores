@@ -12,12 +12,12 @@ const cloneScore = ( score: ScoreState ): ScoreState =>
 	JSON.parse( JSON.stringify( score ) );
 
 const renderScoreToCanvas = (
-	container: HTMLDivElement | null,
+	canvas: HTMLCanvasElement | null,
 	width: number,
 	height: number,
 	score: ScoreState | undefined
 ) => {
-	if ( ! container || ! score?.tracks?.length ) {
+	if ( ! canvas || ! score?.tracks?.length ) {
 		return;
 	}
 
@@ -29,9 +29,7 @@ const renderScoreToCanvas = (
 		return;
 	}
 
-	container.innerHTML = '';
-
-	const renderer = new Renderer( container, Renderer.Backends.CANVAS );
+	const renderer = new Renderer( canvas, Renderer.Backends.CANVAS );
 	renderer.resize( width, height );
 
 	const context = renderer.getContext();
@@ -59,52 +57,11 @@ const renderScoreToCanvas = (
 	} );
 
 	const [ numBeats, beatValue ] = measure.timeSignature.split( '/' ).map( Number );
-
 	const voice = new Voice( { numBeats, beatValue } );
 	voice.addTickables( notes );
 
 	new Formatter().joinVoices( [ voice ] ).format( [ voice ], width - 40 );
 	voice.draw( context, stave );
-};
-
-const getToneDuration = ( duration: string ): string => {
-	switch ( duration ) {
-		case 'w':
-			return '1n';
-		case 'h':
-			return '2n';
-		case 'q':
-			return '4n';
-		default:
-			return '8n';
-	}
-};
-
-const playScore = async ( score: ScoreState ) => {
-	await Tone.start();
-
-	const synth = new Tone.PolySynth( Tone.Synth ).toDestination();
-	const track = score.tracks[0];
-	const measure = track?.measures?.[0];
-	const voiceData = measure?.voices?.[0];
-
-	if ( ! voiceData ) {
-		return 0;
-	}
-
-	let currentTime = Tone.now();
-
-	voiceData.notes.forEach( ( note ) => {
-		const toneDuration = getToneDuration( note.duration );
-
-		if ( ! note.isRest && note.keys.length > 0 ) {
-			synth.triggerAttackRelease( note.keys, toneDuration, currentTime );
-		}
-
-		currentTime += Tone.Time( toneDuration ).toSeconds();
-	} );
-
-	return currentTime;
 };
 
 export default function Edit( { attributes, setAttributes } ) {
@@ -113,68 +70,11 @@ export default function Edit( { attributes, setAttributes } ) {
 	} );
 
 	const score: ScoreState = attributes.score ?? initialScoreMock;
-	const containerRef = useRef<HTMLDivElement>( null );
-	const timeoutRef = useRef<number | null>( null );
-	const [ isPlaying, setIsPlaying ] = useState( false );
+	const canvasRef = useRef<HTMLCanvasElement>( null );
 
 	useEffect( () => {
-		renderScoreToCanvas( containerRef.current, 600, 220, score );
-
-		return () => {
-			if ( timeoutRef.current ) {
-				window.clearTimeout( timeoutRef.current );
-			}
-		};
+		renderScoreToCanvas( canvasRef.current, 600, 220, score );
 	}, [ score ] );
-
-	const stopPlayback = () => {
-		if ( timeoutRef.current ) {
-			window.clearTimeout( timeoutRef.current );
-			timeoutRef.current = null;
-		}
-
-		Tone.Transport.stop();
-		Tone.Transport.cancel( 0 );
-		setIsPlaying( false );
-	};
-
-	const updateFirstNote = () => {
-		const nextScore = cloneScore( score );
-		const notes = nextScore.tracks[0]?.measures[0]?.voices[0]?.notes;
-
-		if ( ! notes || ! notes.length ) {
-			return;
-		}
-
-		const firstNote = notes[0];
-		const scale = [ 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5' ];
-		const currentIndex = scale.indexOf( firstNote.keys[0] || 'C4' );
-		const nextIndex = currentIndex + 1 >= scale.length ? 0 : currentIndex + 1;
-
-		firstNote.keys = [ scale[ nextIndex ] ];
-		setAttributes( { score: nextScore } );
-	};
-
-	const handleTogglePlayback = async () => {
-		if ( isPlaying ) {
-			stopPlayback();
-			return;
-		}
-
-		setIsPlaying( true );
-
-		try {
-			const totalPlayTime = await playScore( score );
-			const durationSeconds = Math.max( totalPlayTime - Tone.now(), 0 );
-
-			timeoutRef.current = window.setTimeout( () => {
-				stopPlayback();
-			}, Math.max( durationSeconds * 1000, 100 ) );
-		} catch ( error ) {
-			console.error( 'Master Scores: playback failed', error );
-			stopPlayback();
-		}
-	};
 
 	return (
 		<div { ...blockProps }>
@@ -193,19 +93,19 @@ export default function Edit( { attributes, setAttributes } ) {
 						<button
 							type="button"
 							className="master-scores-button master-scores-button-primary"
-							onClick={ handleTogglePlayback }
+							onClick={ () => {} }
 						>
-							{ isPlaying ? <Square size={ 16 } /> : <Play size={ 16 } /> }
-							{ isPlaying ? __( 'Stop audio', 'master-scores' ) : __( 'Play audio', 'master-scores' ) }
+							<Play size={ 16 } />
+							Play audio
 						</button>
 
 						<button
 							type="button"
 							className="master-scores-button"
-							onClick={ () => setAttributes( { score: cloneScore( score ) } ) }
+							onClick={ () => setAttributes( { score } ) }
 						>
 							<Save size={ 16 } />
-							{ __( 'Save score', 'master-scores' ) }
+							Save score
 						</button>
 					</div>
 				</div>
@@ -216,10 +116,11 @@ export default function Edit( { attributes, setAttributes } ) {
 						<p>{ score.metadata.composer }</p>
 					</div>
 
-					<div
-						ref={ containerRef }
-						onClick={ updateFirstNote }
+					<canvas
+						ref={ canvasRef }
 						className="master-scores-canvas"
+						width={ 600 }
+						height={ 220 }
 					/>
 				</div>
 			</div>
