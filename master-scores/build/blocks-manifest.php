@@ -5,16 +5,93 @@ return array(
 		'$schema' => 'https://schemas.wp.org/trunk/block.json',
 		'apiVersion' => 3,
 		'name' => 'create-block/master-scores',
-		'version' => '0.1.0',
+		'version' => '1.0.0',
 		'title' => 'Master Scores',
-		'category' => 'widgets',
-		'icon' => 'smiley',
-		'description' => 'Example block scaffolded with Create Block tool.',
-		'example' => array(
-			
+		'category' => 'text',
+		'icon' => 'format-audio',
+		'description' => 'Editable musical score block.',
+		'attributes' => array(
+			'score' => array(
+				'type' => 'object',
+				'default' => array(
+					'id' => 'score-default',
+					'metadata' => array(
+						'title' => 'My First Score',
+						'composer' => 'Composer'
+					),
+					'playback' => array(
+						'bpm' => 120,
+						'swing' => false
+					),
+					'tracks' => array(
+						array(
+							'id' => 'track-001',
+							'name' => 'Piano',
+							'instrumentId' => 'acoustic_grand_piano',
+							'measures' => array(
+								array(
+									'id' => 'measure-001',
+									'index' => 0,
+									'clef' => 'treble',
+									'timeSignature' => '4/4',
+									'keySignature' => 'C',
+									'voices' => array(
+										array(
+											'id' => 'voice-001',
+											'notes' => array(
+												array(
+													'id' => 'note-1',
+													'keys' => array(
+														'C4'
+													),
+													'duration' => 'q',
+													'isRest' => false,
+													'dots' => 0
+												),
+												array(
+													'id' => 'note-2',
+													'keys' => array(
+														'D4'
+													),
+													'duration' => 'q',
+													'isRest' => false,
+													'dots' => 0
+												),
+												array(
+													'id' => 'note-3',
+													'keys' => array(
+														
+													),
+													'duration' => 'q',
+													'isRest' => true,
+													'dots' => 0
+												),
+												array(
+													'id' => 'note-4',
+													'keys' => array(
+														'E5',
+														'G5'
+													),
+													'duration' => 'q',
+													'isRest' => false,
+													'dots' => 0
+												)
+											)
+										)
+									)
+								)
+							)
+						)
+					)
+				)
+			)
 		),
 		'supports' => array(
-			'html' => false
+			'html' => false,
+			'spacing' => array(
+				'margin' => true,
+				'padding' => true
+			)
 		),
 		'textdomain' => 'master-scores',
 		'editorScript' => 'file:./index.js',
