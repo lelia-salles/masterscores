@@ -25,8 +25,8 @@ export default function Edit({ width = 600, height = 200 }: MeasureProps) {
     // Limpa o canvas anterior
     containerRef.current.innerHTML = '';
 
-    // 1. Criando o Renderer diretamente (sem o VF.)
-    const renderer = new Renderer(containerRef.current, Renderer.Backends.CANVAS);
+    // 1. Criando o Renderer 
+    const renderer = new Renderer(containerRef.current, Renderer.Backends.SGV);
     renderer.resize(width, height);
 
     const context = renderer.getContext();
