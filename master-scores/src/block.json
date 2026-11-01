@@ -42,27 +42,6 @@
                         "duration": "q",
                         "isRest": false,
                         "dots": 0
-                      },
-                      {
-                        "id": "note-2",
-                        "keys": ["D4"],
-                        "duration": "q",
-                        "isRest": false,
-                        "dots": 0
-                      },
-                      {
-                        "id": "note-3",
-                        "keys": [],
-                        "duration": "q",
-                        "isRest": true,
-                        "dots": 0
-                      },
-                      {
-                        "id": "note-4",
-                        "keys": ["E5", "G5"],
-                        "duration": "q",
-                        "isRest": false,
-                        "dots": 0
                       }
                     ]
                   }
@@ -75,11 +54,7 @@
     }
   },
   "supports": {
-    "html": false,
-    "spacing": {
-      "margin": true,
-      "padding": true
-    }
+    "html": false
   },
   "textdomain": "master-scores",
   "editorScript": "file:./index.js",
