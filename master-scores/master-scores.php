@@ -17,7 +17,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-//**
+/**
  * Registers the Master Scores block.
  */
 function master_scores_register_block() {
