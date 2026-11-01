@@ -1,6 +1,3 @@
-/**
- * Frontend score renderer.
- */
 import { Renderer, Stave, StaveNote, Formatter, Voice } from 'vexflow';
 
 const renderScore = ( score, element ) => {
