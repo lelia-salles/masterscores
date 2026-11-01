@@ -1,5 +1,4 @@
 <?php
-<?php
 /**
  * Plugin Name:       Master Scores
  * Description:       Score editor block for WordPress.
