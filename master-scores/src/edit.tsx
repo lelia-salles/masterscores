@@ -37,17 +37,6 @@ const ensureFontsInDocument = async ( el: HTMLElement | null ) => {
 	}
 };
 
-const notesString = score.tracks[ 0 ]?.measures?.[ 0 ]?.voices?.[ 0 ]?.notes
-		.map( ( n ) => {
-			if ( n.isRest ) return 'REST';
-			// Se a duração for diferente de 'q', exibe com a barra (ex: C4/8)
-			if ( n.duration && n.duration !== 'q' ) {
-				return n.keys.map( ( k ) => `${ k }/${ n.duration }` ).join( ' ' );
-			}
-			return n.keys.join( ' ' );
-		} )
-		.join( ', ' );
-
 const renderScoreToElement = async (
 	container: HTMLDivElement | null,
 	width: number,
@@ -124,7 +113,15 @@ const renderScoreToElement = async (
 };
 
 const formatNotesToString = ( notes: ScoreNote[] = [] ) =>
-	notes.map( ( n ) => ( n.isRest ? 'REST' : n.keys.join( ' ' ) ) ).join( ', ' );
+	notes
+		.map( ( n ) => {
+			if ( n.isRest ) return 'REST';
+			if ( n.duration && n.duration !== 'q' ) {
+				return n.keys.map( ( k ) => `${ k }/${ n.duration }` ).join( ' ' );
+			}
+			return n.keys.join( ' ' );
+		} )
+		.join( ', ' );
 
 export default function Edit( { attributes, setAttributes } ) {
 	const blockProps = useBlockProps( {
@@ -177,7 +174,7 @@ export default function Edit( { attributes, setAttributes } ) {
 	};
 
 	const handleNotesChange = ( val: string ) => {
-		setNotesInput( val ); // Mantém o campo de texto livre enquanto digita
+		setNotesInput( val );
 
 		const rawTokens = val
 			.split( ',' )
@@ -198,7 +195,6 @@ export default function Edit( { attributes, setAttributes } ) {
 				return;
 			}
 
-			// Separa por espaços para detetar notas individuais ou acordes com a respetiva duração (ex: "C4/8 E4/8" ou "C4 E4/q")
 			const subTokens = token.split( /\s+/ );
 			let currentDuration = 'q';
 			const noteKeys: string[] = [];
@@ -231,24 +227,7 @@ export default function Edit( { attributes, setAttributes } ) {
 					dots: 0,
 				} );
 			}
-		} ); // (garantir fecho correto)
-
-			const keys = token
-				.split( /\s+/ )
-				.map( ( k ) => k.trim().toUpperCase() )
-				.filter( ( k ) => /^[A-G](#|B)?[1-7]$/.test( k ) )
-				.map( ( k ) => k.replace( 'B', 'b' ).replace( /^b/, 'B' ) );
-
-			if ( keys.length > 0 ) {
-				validNotes.push( {
-					id: `note-${ index }`,
-					keys,
-					duration: 'q',
-					isRest: false,
-					dots: 0,
-				} );
-			}
-		};
+		} );
 
 		if ( validNotes.length > 0 ) {
 			const newScore = cloneScore( score );
@@ -276,6 +255,8 @@ export default function Edit( { attributes, setAttributes } ) {
 		Tone.Transport.stop();
 		Tone.Transport.cancel( 0 );
 		Tone.Transport.bpm.value = score.playback.bpm || 120;
+		Tone.Transport.swing = score.playback.swing ? 0.5 : 0;
+		Tone.Transport.swingSubdivision = '8n';
 
 		let currentTime = 0;
 		const voice = score.tracks?.[ 0 ]?.measures?.[ 0 ]?.voices?.[ 0 ];
