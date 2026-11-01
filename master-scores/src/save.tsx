@@ -23,6 +23,9 @@ export default function save( { attributes } ) {
 				<div className="master-scores-frontend-composer">
 					{ score.metadata?.composer || '' }
 				</div>
+				
+				{/* Contentor reservado para o VexFlow desenhar a pauta no frontend */}
+				<div className="master-scores-canvas-container"></div>
 			</div>
 		</div>
 	);

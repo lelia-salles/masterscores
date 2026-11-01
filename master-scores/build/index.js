@@ -280,6 +280,8 @@ function save({
       }), /*#__PURE__*/(0,react_jsx_runtime__WEBPACK_IMPORTED_MODULE_1__.jsx)("div", {
         className: "master-scores-frontend-composer",
         children: score.metadata?.composer || ''
+      }), /*#__PURE__*/(0,react_jsx_runtime__WEBPACK_IMPORTED_MODULE_1__.jsx)("div", {
+        className: "master-scores-canvas-container"
       })]
     })
   });
