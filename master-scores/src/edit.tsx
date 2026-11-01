@@ -37,6 +37,17 @@ const ensureFontsInDocument = async ( el: HTMLElement | null ) => {
 	}
 };
 
+const notesString = score.tracks[ 0 ]?.measures?.[ 0 ]?.voices?.[ 0 ]?.notes
+		.map( ( n ) => {
+			if ( n.isRest ) return 'REST';
+			// Se a duração for diferente de 'q', exibe com a barra (ex: C4/8)
+			if ( n.duration && n.duration !== 'q' ) {
+				return n.keys.map( ( k ) => `${ k }/${ n.duration }` ).join( ' ' );
+			}
+			return n.keys.join( ' ' );
+		} )
+		.join( ', ' );
+
 const renderScoreToElement = async (
 	container: HTMLDivElement | null,
 	width: number,
@@ -113,15 +124,7 @@ const renderScoreToElement = async (
 };
 
 const formatNotesToString = ( notes: ScoreNote[] = [] ) =>
-	notes
-		.map( ( n ) => {
-			if ( n.isRest ) return 'REST';
-			if ( n.duration && n.duration !== 'q' ) {
-				return n.keys.map( ( k ) => `${ k }/${ n.duration }` ).join( ' ' );
-			}
-			return n.keys.join( ' ' );
-		} )
-		.join( ', ' );
+	notes.map( ( n ) => ( n.isRest ? 'REST' : n.keys.join( ' ' ) ) ).join( ', ' );
 
 export default function Edit( { attributes, setAttributes } ) {
 	const blockProps = useBlockProps( {
@@ -174,7 +177,7 @@ export default function Edit( { attributes, setAttributes } ) {
 	};
 
 	const handleNotesChange = ( val: string ) => {
-		setNotesInput( val );
+		setNotesInput( val ); // Mantém o campo de texto livre enquanto digita
 
 		const rawTokens = val
 			.split( ',' )
@@ -195,6 +198,7 @@ export default function Edit( { attributes, setAttributes } ) {
 				return;
 			}
 
+			// Separa por espaços para detetar notas individuais ou acordes com a respetiva duração (ex: "C4/8 E4/8" ou "C4 E4/q")
 			const subTokens = token.split( /\s+/ );
 			let currentDuration = 'q';
 			const noteKeys: string[] = [];
@@ -227,7 +231,24 @@ export default function Edit( { attributes, setAttributes } ) {
 					dots: 0,
 				} );
 			}
-		} );
+		} ); // (garantir fecho correto)
+
+			const keys = token
+				.split( /\s+/ )
+				.map( ( k ) => k.trim().toUpperCase() )
+				.filter( ( k ) => /^[A-G](#|B)?[1-7]$/.test( k ) )
+				.map( ( k ) => k.replace( 'B', 'b' ).replace( /^b/, 'B' ) );
+
+			if ( keys.length > 0 ) {
+				validNotes.push( {
+					id: `note-${ index }`,
+					keys,
+					duration: 'q',
+					isRest: false,
+					dots: 0,
+				} );
+			}
+		};
 
 		if ( validNotes.length > 0 ) {
 			const newScore = cloneScore( score );
@@ -255,8 +276,6 @@ export default function Edit( { attributes, setAttributes } ) {
 		Tone.Transport.stop();
 		Tone.Transport.cancel( 0 );
 		Tone.Transport.bpm.value = score.playback.bpm || 120;
-		Tone.Transport.swing = score.playback.swing ? 0.5 : 0;
-		Tone.Transport.swingSubdivision = '8n';
 
 		let currentTime = 0;
 		const voice = score.tracks?.[ 0 ]?.measures?.[ 0 ]?.voices?.[ 0 ];
@@ -291,107 +310,107 @@ export default function Edit( { attributes, setAttributes } ) {
 		setIsPlaying( true );
 	};
 
-	return (
-		<div { ...blockProps }>
-			<InspectorControls>
-				<PanelBody title={ __( 'Metadados da Partitura', 'master-scores' ) }>
-					<TextControl
-						label={ __( 'Título', 'master-scores' ) }
-						value={ score.metadata.title }
-						onChange={ ( val ) => {
-							const newScore = cloneScore( score );
-							newScore.metadata.title = val;
-							updateScore( newScore );
-						} }
-					/>
-					<TextControl
-						label={ __( 'Compositor', 'master-scores' ) }
-						value={ score.metadata.composer }
-						onChange={ ( val ) => {
-							const newScore = cloneScore( score );
-							newScore.metadata.composer = val;
-							updateScore( newScore );
-						} }
-					/>
-				</PanelBody>
+		return (
+			<div { ...blockProps }>
+				<InspectorControls>
+					<PanelBody title={ __( 'Metadados da Partitura', 'master-scores' ) }>
+						<TextControl
+							label={ __( 'Título', 'master-scores' ) }
+							value={ score.metadata.title }
+							onChange={ ( val ) => {
+								const newScore = cloneScore( score );
+								newScore.metadata.title = val;
+								updateScore( newScore );
+							} }
+						/>
+						<TextControl
+							label={ __( 'Compositor', 'master-scores' ) }
+							value={ score.metadata.composer }
+							onChange={ ( val ) => {
+								const newScore = cloneScore( score );
+								newScore.metadata.composer = val;
+								updateScore( newScore );
+							} }
+						/>
+					</PanelBody>
 
-				<PanelBody title={ __( 'Reprodução de Áudio', 'master-scores' ) }>
-					<RangeControl
-						label={ __( 'BPM (Tempo)', 'master-scores' ) }
-						value={ score.playback.bpm }
-						onChange={ ( val ) => {
-							const newScore = cloneScore( score );
-							newScore.playback.bpm = val ?? 120;
-							updateScore( newScore );
-						} }
-						min={ 40 }
-						max={ 240 }
-					/>
-					<ToggleControl
-						label={ __( 'Aplicar Swing', 'master-scores' ) }
-						checked={ score.playback.swing }
-						onChange={ ( val ) => {
-							const newScore = cloneScore( score );
-							newScore.playback.swing = val;
-							updateScore( newScore );
-						} }
-					/>
-				</PanelBody>
+					<PanelBody title={ __( 'Reprodução de Áudio', 'master-scores' ) }>
+						<RangeControl
+							label={ __( 'BPM (Tempo)', 'master-scores' ) }
+							value={ score.playback.bpm }
+							onChange={ ( val ) => {
+								const newScore = cloneScore( score );
+								newScore.playback.bpm = val ?? 120;
+								updateScore( newScore );
+							} }
+							min={ 40 }
+							max={ 240 }
+						/>
+						<ToggleControl
+							label={ __( 'Aplicar Swing', 'master-scores' ) }
+							checked={ score.playback.swing }
+							onChange={ ( val ) => {
+								const newScore = cloneScore( score );
+								newScore.playback.swing = val;
+								updateScore( newScore );
+							} }
+						/>
+					</PanelBody>
 
-				<PanelBody title={ __( 'Editor de Notas', 'master-scores' ) }>
-					<TextareaControl
-						label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
-						value={ notesInput }
-						onChange={ handleNotesChange }
-						help={ __( 'Exemplo: C4/w, D4/h, E4/q, REST, C4/8 E4/16 G4/32', 'master-scores' ) }
-					/>
-				</PanelBody>
-			</InspectorControls>
+					<PanelBody title={ __( 'Editor de Notas', 'master-scores' ) }>
+						<TextareaControl
+							label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
+							value={ notesInput }
+							onChange={ handleNotesChange }
+							help={ __( 'Exemplo: C4/w, D4/h, E4/q, REST, C4/8 E4/16 G4/32', 'master-scores' ) }
+						/>
+					</PanelBody>
+				</InspectorControls>
 
-			<div className="master-scores-editor">
-				<div className="master-scores-toolbar">
-					<div className="master-scores-brand">
-						<div className="master-scores-brand-icon">
-							<Music size={ 18 } />
+				<div className="master-scores-editor">
+					<div className="master-scores-toolbar">
+						<div className="master-scores-brand">
+							<div className="master-scores-brand-icon">
+								<Music size={ 18 } />
+							</div>
+							<div>
+								<strong>{ score.metadata.title }</strong>
+							</div>
 						</div>
-						<div>
-							<strong>{ score.metadata.title }</strong>
+
+						<div className="master-scores-actions">
+							<button
+								type="button"
+								className={ `master-scores-button ${ isPlaying ? '' : 'master-scores-button-primary' }` }
+								onClick={ togglePlayback }
+							>
+								{ isPlaying ? <Square size={ 16 } /> : <Play size={ 16 } /> }
+								{ isPlaying ? __( 'Parar', 'master-scores' ) : __( 'Tocar', 'master-scores' ) }
+							</button>
+
+							<button
+								type="button"
+								className="master-scores-button"
+								onClick={ () => updateScore( cloneScore( score ) ) }
+							>
+								<Save size={ 16 } />
+								{ __( 'Forçar Gravação', 'master-scores' ) }
+							</button>
 						</div>
 					</div>
 
-					<div className="master-scores-actions">
-						<button
-							type="button"
-							className={ `master-scores-button ${ isPlaying ? '' : 'master-scores-button-primary' }` }
-							onClick={ togglePlayback }
-						>
-							{ isPlaying ? <Square size={ 16 } /> : <Play size={ 16 } /> }
-							{ isPlaying ? __( 'Parar', 'master-scores' ) : __( 'Tocar', 'master-scores' ) }
-						</button>
+					<div className="master-scores-score-panel" ref={ panelRef }>
+						<div className="master-scores-header">
+							<h2>{ score.metadata.title }</h2>
+							<p>{ score.metadata.composer }</p>
+						</div>
 
-						<button
-							type="button"
-							className="master-scores-button"
-							onClick={ () => updateScore( cloneScore( score ) ) }
-						>
-							<Save size={ 16 } />
-							{ __( 'Forçar Gravação', 'master-scores' ) }
-						</button>
+						<div
+							ref={ scoreContainerRef }
+							className="master-scores-canvas"
+						/>
 					</div>
-				</div>
-
-				<div className="master-scores-score-panel" ref={ panelRef }>
-					<div className="master-scores-header">
-						<h2>{ score.metadata.title }</h2>
-						<p>{ score.metadata.composer }</p>
-					</div>
-
-					<div
-						ref={ scoreContainerRef }
-						className="master-scores-canvas"
-					/>
 				</div>
 			</div>
-		</div>
-	);
+		);
 }
