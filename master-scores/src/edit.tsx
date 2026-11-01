@@ -92,16 +92,37 @@ export default function Edit( { attributes, setAttributes } ) {
 	} );
 
 	const score: ScoreState = attributes.score ?? initialScoreMock;
+	
 	const canvasRef = useRef<HTMLCanvasElement>( null );
+	const containerRef = useRef<HTMLDivElement>( null ); // Referencial para medir a largura da div
 	
 	const [ isPlaying, setIsPlaying ] = useState( false );
+	const [ canvasWidth, setCanvasWidth ] = useState( 600 );
 	const synthRef = useRef<Tone.PolySynth | null>( null );
 
+	// Observa mudanças na largura da div contentora (Responsividade)
 	useEffect( () => {
-		renderScoreToCanvas( canvasRef.current, 600, 220, score );
-	}, [ score ] );
+		if ( ! containerRef.current ) return;
 
-	// Limpar o áudio caso o componente seja desmontado
+		const resizeObserver = new ResizeObserver( ( entries ) => {
+			for ( const entry of entries ) {
+				setCanvasWidth( entry.contentRect.width ); 
+			}
+		} );
+
+		resizeObserver.observe( containerRef.current );
+
+		return () => resizeObserver.disconnect();
+	}, [] );
+
+	// Redesenha a pauta sempre que os dados (score) ou a largura (canvasWidth) mudarem
+	useEffect( () => {
+		// Garante uma largura mínima (250px) para evitar erros de formatação no VexFlow
+		const safeWidth = Math.max( canvasWidth, 250 );
+		renderScoreToCanvas( canvasRef.current, safeWidth, 220, score );
+	}, [ score, canvasWidth ] );
+
+	// Limpa os recursos do Tone.js quando o componente for destruído (ao fechar o editor)
 	useEffect( () => {
 		return () => {
 			if ( synthRef.current ) {
@@ -124,7 +145,7 @@ export default function Edit( { attributes, setAttributes } ) {
 			return;
 		}
 
-		await Tone.start();
+		await Tone.start(); // Essencial para navegadores modernos permitirem áudio
 
 		if ( ! synthRef.current ) {
 			synthRef.current = new Tone.PolySynth( Tone.Synth ).toDestination();
@@ -143,18 +164,16 @@ export default function Edit( { attributes, setAttributes } ) {
 				const toneDuration = mapDurationToTone( note.duration );
 				
 				if ( ! note.isRest && note.keys.length > 0 ) {
-					// As chaves já estão no formato do Tone.js (Ex: 'C4', 'E5')
 					Tone.Transport.schedule( ( time ) => {
 						synthRef.current?.triggerAttackRelease( note.keys, toneDuration, time );
 					}, currentTime );
 				}
 				
-				// Avançar o tempo (Tone.Time calcula o valor de '4n', etc., baseado no BPM)
+				// O Tone.Time calcula o avanço tendo em conta o BPM e a figura rítmica (ex: 4n)
 				currentTime += Tone.Time( toneDuration ).toSeconds();
 			} );
 		}
 
-		// Agendar a paragem quando a música terminar
 		Tone.Transport.schedule( ( time ) => {
 			Tone.Draw.schedule( () => {
 				setIsPlaying( false );
@@ -166,7 +185,7 @@ export default function Edit( { attributes, setAttributes } ) {
 		setIsPlaying( true );
 	};
 
-	// Função simples para converter texto cru numa lista de notas JSON
+	// Converte texto cru numa estrutura JSON ScoreNote[]
 	const handleNotesChange = ( val: string ) => {
 		const newScore = cloneScore( score );
 		const rawNotes = val.split( ',' ).map( s => s.trim() ).filter( Boolean );
@@ -175,8 +194,8 @@ export default function Edit( { attributes, setAttributes } ) {
 			const isRest = rawNote.toUpperCase() === 'REST';
 			return {
 				id: `note-${ index }`,
-				keys: isRest ? [] : rawNote.split( ' ' ), // permite acordes com espaço ex: "C4 E4"
-				duration: 'q', // fixa em semínimas para simplificar nesta fase
+				keys: isRest ? [] : rawNote.split( ' ' ), // Separa acordes ex: "C4 E4"
+				duration: 'q', // Fixa em semínimas (quarter note) nesta versão inicial
 				isRest,
 				dots: 0
 			};
@@ -189,14 +208,12 @@ export default function Edit( { attributes, setAttributes } ) {
 		updateScore( newScore );
 	};
 
-	// Transforma o array de notas na string de edição rápida (ex: "C4, D4, REST")
 	const notesString = score.tracks[0]?.measures[0]?.voices[0]?.notes
 		.map( n => n.isRest ? 'REST' : n.keys.join( ' ' ) )
 		.join( ', ' );
 
 	return (
 		<div { ...blockProps }>
-			{/* CONTROLOS LATERAIS DO GUTENBERG */}
 			<InspectorControls>
 				<PanelBody title={ __( 'Metadados da Partitura', 'master-scores' ) }>
 					<TextControl
@@ -247,7 +264,7 @@ export default function Edit( { attributes, setAttributes } ) {
 						label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
 						value={ notesString }
 						onChange={ handleNotesChange }
-						help={ __( 'Exemplo de uso: C4, D4, REST, E4 G4 (acorde)', 'master-scores' ) }
+						help={ __( 'Exemplo de uso: C4, D4, REST, E4 G4', 'master-scores' ) }
 					/>
 				</PanelBody>
 			</InspectorControls>
@@ -284,7 +301,7 @@ export default function Edit( { attributes, setAttributes } ) {
 					</div>
 				</div>
 
-				<div className="master-scores-score-panel">
+				<div className="master-scores-score-panel" ref={ containerRef }>
 					<div className="master-scores-header">
 						<h2>{ score.metadata.title }</h2>
 						<p>{ score.metadata.composer }</p>
@@ -293,7 +310,7 @@ export default function Edit( { attributes, setAttributes } ) {
 					<canvas
 						ref={ canvasRef }
 						className="master-scores-canvas"
-						width={ 600 }
+						width={ canvasWidth }
 						height={ 220 }
 					/>
 				</div>
