@@ -12,7 +12,7 @@ import { ScoreState, ScoreNote } from './types/scores';
 const cloneScore = ( score: ScoreState ): ScoreState =>
 	JSON.parse( JSON.stringify( score ) );
 
-// Mapeamento de duração do VexFlow (q = quarter) para o Tone.js (4n = quarter note)
+// Mapeia durações do VexFlow para as do Tone.js
 const mapDurationToTone = ( duration: string ) => {
 	const map: Record<string, string> = {
 		'w': '1n',
@@ -47,7 +47,7 @@ const renderScoreToCanvas = (
 	renderer.resize( width, height );
 
 	const context = renderer.getContext();
-	context.clear(); // Limpa o canvas antes de desenhar novamente
+	context.clear(); 
 	context.setFont( 'Arial', 10, '' ).setBackgroundFillStyle( '#f8fafc' );
 
 	const stave = new Stave( 10, 40, width - 20 );
@@ -61,11 +61,11 @@ const renderScoreToCanvas = (
 			const mappedKeys =
 				note.isRest || note.keys.length === 0
 					? [ 'b/4' ]
-					: note.keys.map( ( key ) =>
-							key
-								.toLowerCase()
-								.replace( /(\w)(#|b)?(\d)/, '$1$2/$3' )
-					  );
+					: note.keys.map( ( key ) => {
+							// Limpeza estrita para o VexFlow: "C4" -> "c/4"
+							const cleanKey = key.trim().toLowerCase();
+							return cleanKey.replace( /([a-g])(#|b)?(\d)/, '$1$2/$3' );
+					  } );
 
 			return new StaveNote( {
 				clef: measure.clef,
@@ -76,13 +76,13 @@ const renderScoreToCanvas = (
 
 		const [ numBeats, beatValue ] = measure.timeSignature.split( '/' ).map( Number );
 		const voice = new Voice( { numBeats, beatValue } );
-		voice.setStrict( false ); // Permite desenhar o compasso mesmo se não estiver totalmente preenchido
+		voice.setStrict( false ); // Evita erros se o compasso estiver incompleto
 		voice.addTickables( notes );
 
 		new Formatter().joinVoices( [ voice ] ).format( [ voice ], width - 40 );
 		voice.draw( context, stave );
 	} catch ( error ) {
-		console.error( "Erro ao renderizar pauta:", error );
+		console.error( "Erro ao renderizar a pauta:", error );
 	}
 };
 
@@ -94,13 +94,13 @@ export default function Edit( { attributes, setAttributes } ) {
 	const score: ScoreState = attributes.score ?? initialScoreMock;
 	
 	const canvasRef = useRef<HTMLCanvasElement>( null );
-	const containerRef = useRef<HTMLDivElement>( null ); // Referencial para medir a largura da div
+	const containerRef = useRef<HTMLDivElement>( null ); 
 	
 	const [ isPlaying, setIsPlaying ] = useState( false );
 	const [ canvasWidth, setCanvasWidth ] = useState( 600 );
 	const synthRef = useRef<Tone.PolySynth | null>( null );
 
-	// Observa mudanças na largura da div contentora (Responsividade)
+	// Observa a largura da div contentora para desenhar o VexFlow à medida correta
 	useEffect( () => {
 		if ( ! containerRef.current ) return;
 
@@ -115,14 +115,11 @@ export default function Edit( { attributes, setAttributes } ) {
 		return () => resizeObserver.disconnect();
 	}, [] );
 
-	// Redesenha a pauta sempre que os dados (score) ou a largura (canvasWidth) mudarem
 	useEffect( () => {
-		// Garante uma largura mínima (250px) para evitar erros de formatação no VexFlow
 		const safeWidth = Math.max( canvasWidth, 250 );
 		renderScoreToCanvas( canvasRef.current, safeWidth, 220, score );
 	}, [ score, canvasWidth ] );
 
-	// Limpa os recursos do Tone.js quando o componente for destruído (ao fechar o editor)
 	useEffect( () => {
 		return () => {
 			if ( synthRef.current ) {
@@ -145,7 +142,7 @@ export default function Edit( { attributes, setAttributes } ) {
 			return;
 		}
 
-		await Tone.start(); // Essencial para navegadores modernos permitirem áudio
+		await Tone.start(); 
 
 		if ( ! synthRef.current ) {
 			synthRef.current = new Tone.PolySynth( Tone.Synth ).toDestination();
@@ -164,12 +161,14 @@ export default function Edit( { attributes, setAttributes } ) {
 				const toneDuration = mapDurationToTone( note.duration );
 				
 				if ( ! note.isRest && note.keys.length > 0 ) {
+					// Assegura formatação em maiúsculas exigida pelo Tone.js
+					const cleanKeys = note.keys.map( k => k.trim().toUpperCase() );
+					
 					Tone.Transport.schedule( ( time ) => {
-						synthRef.current?.triggerAttackRelease( note.keys, toneDuration, time );
+						synthRef.current?.triggerAttackRelease( cleanKeys, toneDuration, time );
 					}, currentTime );
 				}
 				
-				// O Tone.Time calcula o avanço tendo em conta o BPM e a figura rítmica (ex: 4n)
 				currentTime += Tone.Time( toneDuration ).toSeconds();
 			} );
 		}
@@ -185,17 +184,17 @@ export default function Edit( { attributes, setAttributes } ) {
 		setIsPlaying( true );
 	};
 
-	// Converte texto cru numa estrutura JSON ScoreNote[]
 	const handleNotesChange = ( val: string ) => {
 		const newScore = cloneScore( score );
-		const rawNotes = val.split( ',' ).map( s => s.trim() ).filter( Boolean );
+		// Divide por vírgula e filtra elementos em branco
+		const rawNotes = val.split( ',' ).map( s => s.trim() ).filter( s => s.length > 1 || s.toUpperCase() === 'REST' );
 		
 		const newNotes: ScoreNote[] = rawNotes.map( ( rawNote, index ) => {
 			const isRest = rawNote.toUpperCase() === 'REST';
 			return {
 				id: `note-${ index }`,
-				keys: isRest ? [] : rawNote.split( ' ' ), // Separa acordes ex: "C4 E4"
-				duration: 'q', // Fixa em semínimas (quarter note) nesta versão inicial
+				keys: isRest ? [] : rawNote.split( /\s+/ ).map( k => k.trim() ),
+				duration: 'q', 
 				isRest,
 				dots: 0
 			};
@@ -264,7 +263,7 @@ export default function Edit( { attributes, setAttributes } ) {
 						label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
 						value={ notesString }
 						onChange={ handleNotesChange }
-						help={ __( 'Exemplo de uso: C4, D4, REST, E4 G4', 'master-scores' ) }
+						help={ __( 'Exemplo: C4, D4, REST, E4 G4 (acorde)', 'master-scores' ) }
 					/>
 				</PanelBody>
 			</InspectorControls>
