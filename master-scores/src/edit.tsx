@@ -1,15 +1,29 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
-import { useBlockProps } from '@wordpress/block-editor';
+import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
+import { PanelBody, TextControl, RangeControl, ToggleControl, TextareaControl } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
 import { Play, Square, Save, Music } from 'lucide-react';
 import { Renderer, Stave, StaveNote, Formatter, Voice } from 'vexflow';
 import * as Tone from 'tone';
 
 import { initialScoreMock } from './mockScore';
-import { ScoreState } from './types/scores';
+import { ScoreState, ScoreNote } from './types/scores';
 
 const cloneScore = ( score: ScoreState ): ScoreState =>
 	JSON.parse( JSON.stringify( score ) );
+
+// Mapeamento de duração do VexFlow (q = quarter) para o Tone.js (4n = quarter note)
+const mapDurationToTone = ( duration: string ) => {
+	const map: Record<string, string> = {
+		'w': '1n',
+		'h': '2n',
+		'q': '4n',
+		'8': '8n',
+		'16': '16n',
+		'32': '32n'
+	};
+	return map[duration] || '4n';
+};
 
 const renderScoreToCanvas = (
 	canvas: HTMLCanvasElement | null,
@@ -33,35 +47,43 @@ const renderScoreToCanvas = (
 	renderer.resize( width, height );
 
 	const context = renderer.getContext();
+	context.clear(); // Limpa o canvas antes de desenhar novamente
 	context.setFont( 'Arial', 10, '' ).setBackgroundFillStyle( '#f8fafc' );
 
 	const stave = new Stave( 10, 40, width - 20 );
 	stave.addClef( measure.clef ).addTimeSignature( measure.timeSignature );
 	stave.setContext( context ).draw();
 
-	const notes = voiceData.notes.map( ( note ) => {
-		const mappedKeys =
-			note.isRest || note.keys.length === 0
-				? [ 'b/4' ]
-				: note.keys.map( ( key ) =>
-						key
-							.toLowerCase()
-							.replace( /(\w)(#|b)?(\d)/, '$1$2/$3' )
-				  );
+	if ( voiceData.notes.length === 0 ) return;
 
-		return new StaveNote( {
-			clef: measure.clef,
-			keys: mappedKeys,
-			duration: note.isRest ? `${ note.duration }r` : note.duration,
+	try {
+		const notes = voiceData.notes.map( ( note ) => {
+			const mappedKeys =
+				note.isRest || note.keys.length === 0
+					? [ 'b/4' ]
+					: note.keys.map( ( key ) =>
+							key
+								.toLowerCase()
+								.replace( /(\w)(#|b)?(\d)/, '$1$2/$3' )
+					  );
+
+			return new StaveNote( {
+				clef: measure.clef,
+				keys: mappedKeys,
+				duration: note.isRest ? `${ note.duration }r` : note.duration,
+			} );
 		} );
-	} );
 
-	const [ numBeats, beatValue ] = measure.timeSignature.split( '/' ).map( Number );
-	const voice = new Voice( { numBeats, beatValue } );
-	voice.addTickables( notes );
+		const [ numBeats, beatValue ] = measure.timeSignature.split( '/' ).map( Number );
+		const voice = new Voice( { numBeats, beatValue } );
+		voice.setStrict( false ); // Permite desenhar o compasso mesmo se não estiver totalmente preenchido
+		voice.addTickables( notes );
 
-	new Formatter().joinVoices( [ voice ] ).format( [ voice ], width - 40 );
-	voice.draw( context, stave );
+		new Formatter().joinVoices( [ voice ] ).format( [ voice ], width - 40 );
+		voice.draw( context, stave );
+	} catch ( error ) {
+		console.error( "Erro ao renderizar pauta:", error );
+	}
 };
 
 export default function Edit( { attributes, setAttributes } ) {
@@ -71,13 +93,165 @@ export default function Edit( { attributes, setAttributes } ) {
 
 	const score: ScoreState = attributes.score ?? initialScoreMock;
 	const canvasRef = useRef<HTMLCanvasElement>( null );
+	
+	const [ isPlaying, setIsPlaying ] = useState( false );
+	const synthRef = useRef<Tone.PolySynth | null>( null );
 
 	useEffect( () => {
 		renderScoreToCanvas( canvasRef.current, 600, 220, score );
 	}, [ score ] );
 
+	// Limpar o áudio caso o componente seja desmontado
+	useEffect( () => {
+		return () => {
+			if ( synthRef.current ) {
+				synthRef.current.dispose();
+			}
+			Tone.Transport.stop();
+			Tone.Transport.cancel( 0 );
+		};
+	}, [] );
+
+	const updateScore = ( newScore: ScoreState ) => {
+		setAttributes( { score: newScore } );
+	};
+
+	const togglePlayback = async () => {
+		if ( isPlaying ) {
+			Tone.Transport.stop();
+			Tone.Transport.cancel( 0 );
+			setIsPlaying( false );
+			return;
+		}
+
+		await Tone.start();
+
+		if ( ! synthRef.current ) {
+			synthRef.current = new Tone.PolySynth( Tone.Synth ).toDestination();
+		}
+
+		Tone.Transport.bpm.value = score.playback.bpm;
+		Tone.Transport.cancel( 0 );
+
+		let currentTime = 0;
+		const track = score.tracks[0];
+		const measure = track?.measures[0];
+		const voice = measure?.voices[0];
+
+		if ( voice && voice.notes ) {
+			voice.notes.forEach( ( note ) => {
+				const toneDuration = mapDurationToTone( note.duration );
+				
+				if ( ! note.isRest && note.keys.length > 0 ) {
+					// As chaves já estão no formato do Tone.js (Ex: 'C4', 'E5')
+					Tone.Transport.schedule( ( time ) => {
+						synthRef.current?.triggerAttackRelease( note.keys, toneDuration, time );
+					}, currentTime );
+				}
+				
+				// Avançar o tempo (Tone.Time calcula o valor de '4n', etc., baseado no BPM)
+				currentTime += Tone.Time( toneDuration ).toSeconds();
+			} );
+		}
+
+		// Agendar a paragem quando a música terminar
+		Tone.Transport.schedule( ( time ) => {
+			Tone.Draw.schedule( () => {
+				setIsPlaying( false );
+				Tone.Transport.stop();
+			}, time );
+		}, currentTime );
+
+		Tone.Transport.start();
+		setIsPlaying( true );
+	};
+
+	// Função simples para converter texto cru numa lista de notas JSON
+	const handleNotesChange = ( val: string ) => {
+		const newScore = cloneScore( score );
+		const rawNotes = val.split( ',' ).map( s => s.trim() ).filter( Boolean );
+		
+		const newNotes: ScoreNote[] = rawNotes.map( ( rawNote, index ) => {
+			const isRest = rawNote.toUpperCase() === 'REST';
+			return {
+				id: `note-${ index }`,
+				keys: isRest ? [] : rawNote.split( ' ' ), // permite acordes com espaço ex: "C4 E4"
+				duration: 'q', // fixa em semínimas para simplificar nesta fase
+				isRest,
+				dots: 0
+			};
+		} );
+		
+		if ( newScore.tracks[0] && newScore.tracks[0].measures[0] && newScore.tracks[0].measures[0].voices[0] ) {
+			newScore.tracks[0].measures[0].voices[0].notes = newNotes;
+		}
+		
+		updateScore( newScore );
+	};
+
+	// Transforma o array de notas na string de edição rápida (ex: "C4, D4, REST")
+	const notesString = score.tracks[0]?.measures[0]?.voices[0]?.notes
+		.map( n => n.isRest ? 'REST' : n.keys.join( ' ' ) )
+		.join( ', ' );
+
 	return (
 		<div { ...blockProps }>
+			{/* CONTROLOS LATERAIS DO GUTENBERG */}
+			<InspectorControls>
+				<PanelBody title={ __( 'Metadados da Partitura', 'master-scores' ) }>
+					<TextControl
+						label={ __( 'Título', 'master-scores' ) }
+						value={ score.metadata.title }
+						onChange={ ( val ) => {
+							const newScore = cloneScore( score );
+							newScore.metadata.title = val;
+							updateScore( newScore );
+						} }
+					/>
+					<TextControl
+						label={ __( 'Compositor', 'master-scores' ) }
+						value={ score.metadata.composer }
+						onChange={ ( val ) => {
+							const newScore = cloneScore( score );
+							newScore.metadata.composer = val;
+							updateScore( newScore );
+						} }
+					/>
+				</PanelBody>
+
+				<PanelBody title={ __( 'Reprodução de Áudio', 'master-scores' ) }>
+					<RangeControl
+						label={ __( 'BPM (Tempo)', 'master-scores' ) }
+						value={ score.playback.bpm }
+						onChange={ ( val ) => {
+							const newScore = cloneScore( score );
+							newScore.playback.bpm = val ?? 120;
+							updateScore( newScore );
+						} }
+						min={ 40 }
+						max={ 240 }
+					/>
+					<ToggleControl
+						label={ __( 'Aplicar Swing', 'master-scores' ) }
+						checked={ score.playback.swing }
+						onChange={ ( val ) => {
+							const newScore = cloneScore( score );
+							newScore.playback.swing = val;
+							updateScore( newScore );
+						} }
+					/>
+				</PanelBody>
+
+				<PanelBody title={ __( 'Editor de Notas', 'master-scores' ) }>
+					<TextareaControl
+						label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
+						value={ notesString }
+						onChange={ handleNotesChange }
+						help={ __( 'Exemplo de uso: C4, D4, REST, E4 G4 (acorde)', 'master-scores' ) }
+					/>
+				</PanelBody>
+			</InspectorControls>
+
 			<div className="master-scores-editor">
 				<div className="master-scores-toolbar">
 					<div className="master-scores-brand">
@@ -92,20 +266,20 @@ export default function Edit( { attributes, setAttributes } ) {
 					<div className="master-scores-actions">
 						<button
 							type="button"
-							className="master-scores-button master-scores-button-primary"
-							onClick={ () => {} }
+							className={`master-scores-button ${isPlaying ? '' : 'master-scores-button-primary'}`}
+							onClick={ togglePlayback }
 						>
-							<Play size={ 16 } />
-							Play audio
+							{ isPlaying ? <Square size={ 16 } /> : <Play size={ 16 } /> }
+							{ isPlaying ? __( 'Parar', 'master-scores' ) : __( 'Tocar', 'master-scores' ) }
 						</button>
 
 						<button
 							type="button"
 							className="master-scores-button"
-							onClick={ () => setAttributes( { score } ) }
+							onClick={ () => setAttributes( { score: cloneScore(score) } ) }
 						>
 							<Save size={ 16 } />
-							Save score
+							Forçar Gravação
 						</button>
 					</div>
 				</div>
