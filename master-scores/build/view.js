@@ -20433,10 +20433,20 @@ const renderScore = (score, element) => {
   if (!measure || !voiceData) {
     return;
   }
+
+  // 1. Procurar o novo contentor criado no save.tsx
+  const canvasContainer = element.querySelector('.master-scores-canvas-container');
+  if (!canvasContainer) {
+    return;
+  }
   const canvasWidth = 600;
   const canvasHeight = 220;
-  element.innerHTML = '';
-  const renderer = new vexflow__WEBPACK_IMPORTED_MODULE_0__.Renderer(element, vexflow__WEBPACK_IMPORTED_MODULE_0__.Renderer.Backends.CANVAS);
+
+  // 2. Limpar apenas o conteúdo deste contentor específico
+  canvasContainer.innerHTML = '';
+
+  // 3. Passar o canvasContainer para o VexFlow em vez do elemento raiz do bloco
+  const renderer = new vexflow__WEBPACK_IMPORTED_MODULE_0__.Renderer(canvasContainer, vexflow__WEBPACK_IMPORTED_MODULE_0__.Renderer.Backends.CANVAS);
   renderer.resize(canvasWidth, canvasHeight);
   const context = renderer.getContext();
   context.setFont('Arial', 10, '').setBackgroundFillStyle('#f8fafc');

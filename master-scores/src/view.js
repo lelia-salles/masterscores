@@ -13,12 +13,20 @@ const renderScore = ( score, element ) => {
 		return;
 	}
 
+	// 1. Procurar o novo contentor criado no save.tsx
+	const canvasContainer = element.querySelector('.master-scores-canvas-container');
+	if ( ! canvasContainer ) {
+		return;
+	}
+
 	const canvasWidth = 600;
 	const canvasHeight = 220;
 
-	element.innerHTML = '';
+	// 2. Limpar apenas o conteúdo deste contentor específico
+	canvasContainer.innerHTML = '';
 
-	const renderer = new Renderer( element, Renderer.Backends.CANVAS );
+	// 3. Passar o canvasContainer para o VexFlow em vez do elemento raiz do bloco
+	const renderer = new Renderer( canvasContainer, Renderer.Backends.CANVAS );
 	renderer.resize( canvasWidth, canvasHeight );
 
 	const context = renderer.getContext();
