@@ -17,10 +17,11 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-/**
+//**
  * Registers the Master Scores block.
  */
 function master_scores_register_block() {
-	register_block_type( __DIR__ . '/build' );
+	// Tem de apontar estritamente para a pasta build, não para o src.
+	register_block_type( __DIR__ . '/build' ); 
 }
 add_action( 'init', 'master_scores_register_block' );
