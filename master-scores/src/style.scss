@@ -1,22 +1,3 @@
-/* Carrega as fontes musicais para dentro do iframe do Gutenberg e frontend */
-@font-face {
-	font-family: 'Bravura';
-	src: url('https://cdn.jsdelivr.net/npm/@vexflow-fonts/bravura/bravura.woff2') format('woff2');
-	font-weight: normal;
-	font-style: normal;
-}
-
-@font-face {
-	font-family: 'Academico';
-	src: url('https://cdn.jsdelivr.net/npm/@vexflow-fonts/academico/academico.woff2') format('woff2');
-	font-weight: normal;
-	font-style: normal;
-}
-
-.wp-block-create-block-master-scores {
-	.master-scores-editor {
-		border: 1px solid #d0d5dd;
-// ... (restante código existente)
 .wp-block-create-block-master-scores {
 	.master-scores-editor {
 		border: 1px solid #d0d5dd;
@@ -94,7 +75,8 @@
 		color: #6b7280;
 	}
 
-	.master-scores-canvas {
+	.master-scores-canvas,
+	.master-scores-canvas-container {
 		width: 100%;
 		min-height: 220px;
 		border-radius: 8px;
@@ -118,5 +100,6 @@
 	.master-scores-frontend-composer {
 		color: #6b7280;
 		margin-top: 6px;
+		margin-bottom: 12px;
 	}
 }
