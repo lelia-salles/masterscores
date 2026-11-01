@@ -1,169 +1,190 @@
-import { useState, useEffect, useRef } from '@wordpress/element';
-import { Play, Square, Save, Music, Settings } from 'lucide-react';
-import { initialScoreMock } from './mockScore';
-import { ScoreState } from './types/scores';
+import { useEffect, useRef } from '@wordpress/element';
+import { useBlockProps } from '@wordpress/block-editor';
+import { __ } from '@wordpress/i18n';
+import { Play, Square, Save, Music } from 'lucide-react';
 import { Renderer, Stave, StaveNote, Formatter, Voice } from 'vexflow';
 import * as Tone from 'tone';
 
-interface MeasureProps {
-  width?: number;
-  height?: number;
-}
+import { initialScoreMock } from './mockScore';
+import { ScoreState } from './types/scores';
 
-export default function Edit({ width = 600, height = 200 }: MeasureProps) {
-  const [score, setScore] = useState<ScoreState>(initialScoreMock);
-  const [isPlaying, setIsPlaying] = useState(false);
+const cloneScore = (score: ScoreState): ScoreState =>
+  JSON.parse(JSON.stringify(score));
 
-  const containerRef = useRef<HTMLDivElement>(null);
+const renderScoreToCanvas = (
+  container: HTMLDivElement | null,
+  width: number,
+  height: number,
+  score: ScoreState | undefined
+) => {
+  if ( ! container || ! score?.tracks?.length ) {
+    return;
+  }
 
-  // ==========================================
-  // EFEITO 1: VEXFLOW (Renderização Visual)
-  // ==========================================
-  useEffect(() => {
-    if (!containerRef.current) return;
+  container.innerHTML = '';
 
-    // Limpa o canvas anterior
-    containerRef.current.innerHTML = '';
+  const renderer = new Renderer( container, Renderer.Backends.CANVAS );
+  renderer.resize( width, height );
 
-    // 1. Criando o Renderer 
-    const renderer = new Renderer(containerRef.current, Renderer.Backends.SGV);
-    renderer.resize(width, height);
+  const context = renderer.getContext();
+  context.setFont( 'Arial', 10, '' ).setBackgroundFillStyle( '#f8fafc' );
 
-    const context = renderer.getContext();
-    context.setFont('Arial', 10, '').setBackgroundFillStyle('#eed');
+  const track = score.tracks[0];
+  const measure = track.measures[0];
+  const voiceData = measure.voices[0];
 
-    const measureData = score.tracks[0].measures[0];
-    const voiceData = measureData.voices[0];
+  const stave = new Stave( 10, 40, width - 20 );
+  stave.addClef( measure.clef ).addTimeSignature( measure.timeSignature );
+  stave.setContext( context ).draw();
 
-    // 2. Criando a Pauta (Stave) diretamente
-    const stave = new Stave(10, 40, width - 20);
-    stave.addClef(measureData.clef).addTimeSignature(measureData.timeSignature);
-    stave.setContext(context).draw();
+  const notes = voiceData.notes.map( ( note ) => {
+    const mappedKeys =
+      note.isRest || note.keys.length === 0
+        ? [ 'b/4' ]
+        : note.keys.map( ( key ) =>
+            key
+              .toLowerCase()
+              .replace( /(\w)(#|b)?(\d)/, '$1$2/$3' )
+          );
 
-    // 3. Processando as notas e criando StaveNote
-    const notes = voiceData.notes.map(note => {
-      let vfKeys = note.keys.map(k => k.toLowerCase().replace(/(\w)(#|b)?(\d)/, "$1$2/$3"));
+    return new StaveNote( {
+      clef: measure.clef,
+      keys: mappedKeys,
+      duration: note.isRest ? `${ note.duration }r` : note.duration,
+    } );
+  } );
 
-      if (note.isRest || vfKeys.length === 0) {
-        vfKeys = ['b/4'];
-      }
+  const [ numBeats, beatValue ] = measure.timeSignature.split( '/' ).map( Number );
 
-      return new StaveNote({
-        clef: measureData.clef,
-        keys: vfKeys,
-        duration: note.isRest ? note.duration + 'r' : note.duration
-      });
-    });
+  const voice = new Voice( { numBeats, beatValue } );
+  voice.addTickables( notes );
 
-    const [numBeats, beatValue] = measureData.timeSignature.split('/').map(Number);
+  new Formatter().joinVoices( [ voice ] ).format( [ voice ], width - 40 );
+  voice.draw( context, stave );
+};
 
-    // 4. Criando Voice e Formatter diretamente (CORRIGIDO PARA O TYPESCRIPT)
-    const voice = new Voice({ numBeats, beatValue });
-    voice.addTickables(notes);
+const playScore = async ( score: ScoreState ) => {
+  await Tone.start();
 
-    new Formatter().joinVoices([voice]).format([voice], width - 50);
-    voice.draw(context, stave);
+  const synth = new Tone.PolySynth( Tone.Synth ).toDestination();
+  const track = score.tracks[0];
+  const measure = track.measures[0];
+  const voiceData = measure.voices[0];
 
-  }, [width, height, score]);
+  let currentTime = Tone.now();
 
+  voiceData.notes.forEach( ( note ) => {
+    const toneDuration =
+      note.duration === 'w' ? '1n' :
+      note.duration === 'h' ? '2n' :
+      note.duration === 'q' ? '4n' :
+      '8n';
 
-  // ==========================================
-  // EFEITO 2: TONE.JS (Motor de Áudio)
-  // ==========================================
-  useEffect(() => {
-    if (!isPlaying) {
+    if ( ! note.isRest && note.keys.length > 0 ) {
+      synth.triggerAttackRelease( note.keys, toneDuration, currentTime );
+    }
+
+    currentTime += Tone.Time( toneDuration ).toSeconds();
+  } );
+
+  return currentTime;
+};
+
+export default function Edit( { attributes, setAttributes } ) {
+  const blockProps = useBlockProps( {
+    className: 'wp-block-create-block-master-scores',
+  } );
+
+  const score: ScoreState = attributes.score ?? initialScoreMock;
+  const containerRef = useRef<HTMLDivElement>( null );
+  const isPlayingRef = useRef( false );
+
+  useEffect( () => {
+    renderScoreToCanvas( containerRef.current, 600, 220, score );
+  }, [ score ] );
+
+  const updateFirstNote = () => {
+    const nextScore = cloneScore( score );
+    const firstNote =
+      nextScore.tracks[0].measures[0].voices[0].notes[0];
+
+    const scale = [ 'C4', 'D4', 'E4', 'F4', 'G4', 'A4', 'B4', 'C5' ];
+    const currentIndex = scale.indexOf( firstNote.keys[0] || 'C4' );
+    const nextIndex =
+      currentIndex + 1 >= scale.length ? 0 : currentIndex + 1;
+
+    firstNote.keys = [ scale[ nextIndex ] ];
+
+    setAttributes( { score: nextScore } );
+  };
+
+  const handleTogglePlayback = async () => {
+    const nextValue = ! isPlayingRef.current;
+
+    isPlayingRef.current = nextValue;
+
+    if ( ! nextValue ) {
       Tone.Transport.stop();
-      Tone.Transport.cancel(0);
+      Tone.Transport.cancel( 0 );
       return;
     }
 
-    const playScore = async () => {
-      await Tone.start();
+    const totalPlayTime = await playScore( score );
 
-      const synth = new Tone.PolySynth(Tone.Synth).toDestination();
-      const voiceData = score.tracks[0].measures[0].voices[0];
-
-      let currentTime = Tone.now();
-
-      voiceData.notes.forEach(note => {
-        const toneDuration = note.duration === 'q' ? '4n' : '8n';
-
-        if (!note.isRest && note.keys.length > 0) {
-          synth.triggerAttackRelease(note.keys, toneDuration, currentTime);
-        }
-
-        currentTime += Tone.Time(toneDuration).toSeconds();
-      });
-
-      const totalTime = currentTime - Tone.now();
-      setTimeout(() => setIsPlaying(false), totalTime * 1000);
-    };
-
-    playScore();
-
-    return () => {
+    const durationSeconds = totalPlayTime - Tone.now();
+    window.setTimeout( () => {
+      isPlayingRef.current = false;
       Tone.Transport.stop();
-      Tone.Transport.cancel(0);
-    };
-  }, [isPlaying, score]);
-
-  // ==========================================
-  // INTERATIVIDADE: O MOTOR DE EDIÇÃO (WYSIWYG)
-  // ==========================================
-  const handleCanvasClick = () => {
-    const newScore = { ...score };
-    const firstNote = newScore.tracks[0].measures[0].voices[0].notes[0];
-
-    const scale = ["C4", "D4", "E4", "F4", "G4", "A4", "B4", "C5"];
-    const currentIndex = scale.indexOf(firstNote.keys[0]);
-
-    const nextIndex = currentIndex + 1 >= scale.length ? 0 : currentIndex + 1;
-    firstNote.keys = [scale[nextIndex]];
-
-    setScore(newScore);
+      Tone.Transport.cancel( 0 );
+    }, Math.max( durationSeconds * 1000, 100 ) );
   };
 
-  // ==========================================
-  // INTERFACE
-  // ==========================================
   return (
-    <div className="min-h-screen bg-neutral-100 p-8 font-sans text-slate-800">
-      <div className="max-w-4xl mx-auto bg-white rounded-t-xl shadow-sm border border-slate-200 p-4 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <div className="bg-indigo-600 p-2 rounded-lg text-white">
-            <Music size={20} />
+    <div { ...blockProps }>
+      <div className="master-scores-editor">
+        <div className="master-scores-toolbar">
+          <div className="master-scores-brand">
+            <div className="master-scores-brand-icon">
+              <Music size={ 18 } />
+            </div>
+            <div>
+              <strong>{ score.metadata.title }</strong>
+            </div>
           </div>
-          <h1 className="text-xl font-bold text-slate-800 tracking-tight">Master Scores</h1>
+
+          <div className="master-scores-actions">
+            <button
+              type="button"
+              className="master-scores-button master-scores-button-primary"
+              onClick={ handleTogglePlayback }
+            >
+              { isPlayingRef.current ? <Square size={ 16 } /> : <Play size={ 16 } /> }
+              { isPlayingRef.current ? __( 'Stop audio', 'master-scores' ) : __( 'Play audio', 'master-scores' ) }
+            </button>
+
+            <button
+              type="button"
+              className="master-scores-button"
+              onClick={ () => setAttributes( { score: cloneScore( score ) } ) }
+            >
+              <Save size={ 16 } />
+              { __( 'Save score', 'master-scores' ) }
+            </button>
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setIsPlaying(!isPlaying)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md font-medium transition-colors ${
-              isPlaying ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700'
-            }`}
-          >
-            {isPlaying ? <Square size={16} /> : <Play size={16} />}
-            {isPlaying ? 'Parar Áudio' : 'Tocar Áudio'}
-          </button>
+        <div className="master-scores-score-panel">
+          <div className="master-scores-header">
+            <h2>{ score.metadata.title }</h2>
+            <p>{ score.metadata.composer }</p>
+          </div>
 
-          <button className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-md font-medium">
-            <Save size={16} />
-            Salvar no WP
-          </button>
+          <div
+            ref={ containerRef }
+            onClick={ updateFirstNote }
+            className="master-scores-canvas"
+          />
         </div>
-      </div>
-
-      <div className="max-w-4xl mx-auto bg-white border-x border-b border-slate-200 rounded-b-xl shadow-sm min-h-[400px] p-8 flex flex-col items-center">
-        <div className="text-center mb-8">
-          <h2 className="text-3xl font-serif text-slate-900">{score.metadata.title}</h2>
-          <p className="text-slate-500 mt-2 font-serif italic">{score.metadata.composer}</p>
-        </div>
-        <div
-          ref={containerRef}
-          onClick={handleCanvasClick}
-          className="bg-white group relative cursor-crosshair hover:bg-slate-50 transition-colors"
-        ></div>
       </div>
     </div>
   );

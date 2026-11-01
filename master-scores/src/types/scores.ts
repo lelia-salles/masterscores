@@ -1,60 +1,26 @@
-// types/score.ts
-
+<?php
 /**
- * A Raiz da Partitura. Representa o arquivo completo.
+ * Plugin Name:       Master Scores
+ * Description:       Score editor block for WordPress.
+ * Version:           1.0.0
+ * Requires at least: 6.8
+ * Requires PHP:      7.4
+ * Author:            Master Musica
+ * License:           GPL-2.0-or-later
+ * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain:       master-scores
+ *
+ * @package MasterScores
  */
-export interface ScoreState {
-  id: string;
-  metadata: {
-    title: string;
-    composer: string;
-  };
-  playback: {
-    bpm: number;         // Crucial para o Tone.js ditar o tempo
-    swing: boolean;
-  };
-  tracks: Track[];       // Lista de instrumentos (ex: Piano = 2 tracks para 2 pautas)
+
+if ( ! defined( 'ABSPATH' ) ) {
+	exit;
 }
 
 /**
- * Uma Pista (ou Instrumento). 
+ * Registers the Master Scores block.
  */
-export interface Track {
-  id: string;
-  name: string;
-  instrumentId: string;  // Mapeia para o SoundFont do Tone.js (ex: 'acoustic_grand_piano')
-  measures: Measure[];
+function master_scores_register_block() {
+	register_block_type( __DIR__ . '/build' );
 }
-
-/**
- * O Compasso. Onde a mágica de divisão matemática acontece.
- */
-export interface Measure {
-  id: string;
-  index: number;
-  clef: 'treble' | 'bass' | 'alto' | 'tenor'; // VexFlow precisa disso para desenhar
-  timeSignature: string;                      // ex: "4/4", "3/4" - Tone.js usa para agendar
-  keySignature: string;                       // ex: "C", "G", "F#"
-  voices: Voice[];                            // Permite polifonia (múltiplas melodias na mesma pauta)
-}
-
-/**
- * Uma Voz contínua dentro de um compasso.
- */
-export interface Voice {
-  id: string;
-  notes: NoteEvent[];
-}
-
-/**
- * A Entidade Musical (Nota ou Pausa).
- */
-export interface NoteEvent {
-  id: string;
-  keys: string[];        // Array para acordes. Ex: ["C4", "E4", "G4"]. Vazio se for pausa.
-  duration: string;      // Formato neutro: 'w'(semibreve), 'h'(mínima), 'q'(semínima), '8'(colcheia)
-  isRest: boolean;       // Se true, o VexFlow desenha uma pausa e o Tone.js silencia
-  dots: number;          // Quantidade de pontos de aumento (0, 1, 2)
-  articulation?: 'staccato' | 'accent' | 'tenuto';
-  tie?: 'start' | 'stop';// Ligaduras de valor
-}
+add_action( 'init', 'master_scores_register_block' );
