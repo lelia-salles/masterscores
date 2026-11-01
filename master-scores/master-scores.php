@@ -24,11 +24,3 @@ function master_scores_register_block() {
 	register_block_type( __DIR__ . '/build' );
 }
 add_action( 'init', 'master_scores_register_block' );
-
-/**
- * Registers the Master Scores block.
- */
-function master_scores_register_block() {
-	register_block_type( __DIR__ . '/build' );
-}
-add_action( 'init', 'master_scores_register_block' );

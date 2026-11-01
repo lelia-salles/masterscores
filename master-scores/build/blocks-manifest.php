@@ -47,34 +47,6 @@ return array(
 													'duration' => 'q',
 													'isRest' => false,
 													'dots' => 0
-												),
-												array(
-													'id' => 'note-2',
-													'keys' => array(
-														'D4'
-													),
-													'duration' => 'q',
-													'isRest' => false,
-													'dots' => 0
-												),
-												array(
-													'id' => 'note-3',
-													'keys' => array(
-														
-													),
-													'duration' => 'q',
-													'isRest' => true,
-													'dots' => 0
-												),
-												array(
-													'id' => 'note-4',
-													'keys' => array(
-														'E5',
-														'G5'
-													),
-													'duration' => 'q',
-													'isRest' => false,
-													'dots' => 0
 												)
 											)
 										)
@@ -87,11 +59,7 @@ return array(
 			)
 		),
 		'supports' => array(
-			'html' => false,
-			'spacing' => array(
-				'margin' => true,
-				'padding' => true
-			)
+			'html' => false
 		),
 		'textdomain' => 'master-scores',
 		'editorScript' => 'file:./index.js',

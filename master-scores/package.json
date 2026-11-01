@@ -17,8 +17,9 @@
 	"dependencies": {
 		"@wordpress/block-editor": "latest",
 		"@wordpress/blocks": "latest",
+		"@wordpress/element": "^10.0.0",
 		"@wordpress/i18n": "latest",
-		"lucide-react": "^1.28.0",
+		"lucide-react": "^1.66.0",
 		"tone": "^15.1.22",
 		"vexflow": "^5.0.0"
 	},
@@ -27,5 +28,11 @@
 		"@types/wordpress__block-editor": "^15.0.6",
 		"@wordpress/scripts": "^34.0.0",
 		"typescript": "^6.0.3"
+	},
+	"allowScripts": {
+		"@parcel/watcher@2.6.0": true,
+		"core-js@3.49.0": true,
+		"core-js-pure@3.49.0": true,
+		"unrs-resolver@1.12.2": true
 	}
 }
