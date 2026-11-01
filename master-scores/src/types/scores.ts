@@ -1,26 +1,45 @@
-<?php
-/**
- * Plugin Name:       Master Scores
- * Description:       Score editor block for WordPress.
- * Version:           1.0.0
- * Requires at least: 6.8
- * Requires PHP:      7.4
- * Author:            Master Musica
- * License:           GPL-2.0-or-later
- * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       master-scores
- *
- * @package MasterScores
- */
-
-if ( ! defined( 'ABSPATH' ) ) {
-	exit;
+export interface ScoreMetadata {
+	title: string;
+	composer: string;
 }
 
-/**
- * Registers the Master Scores block.
- */
-function master_scores_register_block() {
-	register_block_type( __DIR__ . '/build' );
+export interface ScorePlayback {
+	bpm: number;
+	swing: boolean;
 }
-add_action( 'init', 'master_scores_register_block' );
+
+export interface ScoreNote {
+	id: string;
+	keys: string[];
+	duration: string;
+	isRest: boolean;
+	dots: number;
+}
+
+export interface ScoreVoice {
+	id: string;
+	notes: ScoreNote[];
+}
+
+export interface ScoreMeasure {
+	id: string;
+	index: number;
+	clef: string;
+	timeSignature: string;
+	keySignature: string;
+	voices: ScoreVoice[];
+}
+
+export interface ScoreTrack {
+	id: string;
+	name: string;
+	instrumentId: string;
+	measures: ScoreMeasure[];
+}
+
+export interface ScoreState {
+	id: string;
+	metadata: ScoreMetadata;
+	playback: ScorePlayback;
+	tracks: ScoreTrack[];
+}
