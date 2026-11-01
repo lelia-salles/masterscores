@@ -231,7 +231,7 @@ export default function Edit( { attributes, setAttributes } ) {
 					dots: 0,
 				} );
 			}
-		}Pf ); // (garantir fecho correto)
+		} ); // (garantir fecho correto)
 
 			const keys = token
 				.split( /\s+/ )
@@ -248,7 +248,7 @@ export default function Edit( { attributes, setAttributes } ) {
 					dots: 0,
 				} );
 			}
-		} );
+		};
 
 		if ( validNotes.length > 0 ) {
 			const newScore = cloneScore( score );
