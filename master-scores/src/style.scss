@@ -1,4 +1,27 @@
 .wp-block-create-block-master-scores {
+	.master-scores-frontend {
+		padding: 16px;
+		background: #ffffff;
+		border: 1px solid #e5e7eb;
+		border-radius: 10px;
+	}
+
+	.master-scores-frontend-header {
+		display: flex;
+		justify-content: space-between;
+		align-items: center;
+		margin-bottom: 12px;
+	}
+
+	.master-scores-frontend-title {
+		font-size: 18px;
+		font-weight: 700;
+	}
+
+	.master-scores-frontend-composer {
+		color: #6b7280;
+		margin-top: 4px;
+	}
 	.master-scores-editor {
 		border: 1px solid #d0d5dd;
 		border-radius: 12px;

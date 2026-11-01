@@ -17,13 +17,24 @@ export default function save( { attributes } ) {
 			data-score={ JSON.stringify( score ) }
 		>
 			<div className="master-scores-frontend">
-				<div className="master-scores-frontend-title">
-					{ score.metadata?.title || 'Master Scores' }
+				<div className="master-scores-frontend-header">
+					<div>
+						<div className="master-scores-frontend-title">
+							{ score.metadata?.title || 'Master Scores' }
+						</div>
+						<div className="master-scores-frontend-composer">
+							{ score.metadata?.composer || '' }
+						</div>
+					</div>
+
+					<button
+						type="button"
+						className="master-scores-button master-scores-button-primary master-scores-play-btn"
+					>
+						Tocar
+					</button>
 				</div>
-				<div className="master-scores-frontend-composer">
-					{ score.metadata?.composer || '' }
-				</div>
-				
+
 				{/* Contentor reservado para o VexFlow desenhar a pauta no frontend */}
 				<div className="master-scores-canvas-container"></div>
 			</div>

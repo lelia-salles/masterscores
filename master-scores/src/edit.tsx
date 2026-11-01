@@ -37,6 +37,17 @@ const ensureFontsInDocument = async ( el: HTMLElement | null ) => {
 	}
 };
 
+const notesString = score.tracks[ 0 ]?.measures?.[ 0 ]?.voices?.[ 0 ]?.notes
+		.map( ( n ) => {
+			if ( n.isRest ) return 'REST';
+			// Se a duração for diferente de 'q', exibe com a barra (ex: C4/8)
+			if ( n.duration && n.duration !== 'q' ) {
+				return n.keys.map( ( k ) => `${ k }/${ n.duration }` ).join( ' ' );
+			}
+			return n.keys.join( ' ' );
+		} )
+		.join( ', ' );
+
 const renderScoreToElement = async (
 	container: HTMLDivElement | null,
 	width: number,
@@ -166,8 +177,7 @@ export default function Edit( { attributes, setAttributes } ) {
 	};
 
 	const handleNotesChange = ( val: string ) => {
-		// Atualiza o texto livremente para permitir digitar vírgulas e espaços
-		setNotesInput( val );
+		setNotesInput( val ); // Mantém o campo de texto livre enquanto digita
 
 		const rawTokens = val
 			.split( ',' )
@@ -187,6 +197,41 @@ export default function Edit( { attributes, setAttributes } ) {
 				} );
 				return;
 			}
+
+			// Separa por espaços para detetar notas individuais ou acordes com a respetiva duração (ex: "C4/8 E4/8" ou "C4 E4/q")
+			const subTokens = token.split( /\s+/ );
+			let currentDuration = 'q';
+			const noteKeys: string[] = [];
+
+			subTokens.forEach( ( sub ) => {
+				if ( sub.includes( '/' ) ) {
+					const [ nKey, nDur ] = sub.split( '/' );
+					const formattedKey = nKey.trim().toUpperCase().replace( 'B', 'b' );
+					if ( /^[A-G](#|b)?[1-7]$/.test( formattedKey ) ) {
+						noteKeys.push( formattedKey );
+					}
+					const cleanDur = nDur.trim().toLowerCase();
+					if ( [ 'w', 'h', 'q', '8', '16', '32' ].includes( cleanDur ) ) {
+						currentDuration = cleanDur;
+					}
+				} else {
+					const formattedKey = sub.trim().toUpperCase().replace( 'B', 'b' );
+					if ( /^[A-G](#|b)?[1-7]$/.test( formattedKey ) ) {
+						noteKeys.push( formattedKey );
+					}
+				}
+			} );
+
+			if ( noteKeys.length > 0 ) {
+				validNotes.push( {
+					id: `note-${ index }`,
+					keys: noteKeys,
+					duration: currentDuration,
+					isRest: false,
+					dots: 0,
+				} );
+			}
+		}Pf ); // (garantir fecho correto)
 
 			const keys = token
 				.split( /\s+/ )
@@ -317,7 +362,7 @@ export default function Edit( { attributes, setAttributes } ) {
 						label={ __( 'Sequência Musical (separada por vírgula)', 'master-scores' ) }
 						value={ notesInput }
 						onChange={ handleNotesChange }
-						help={ __( 'Exemplo: C4, D4, E4, REST, C4 E4 G4', 'master-scores' ) }
+						help={ __( 'Exemplo: C4/w, D4/h, E4/q, REST, C4/8 E4/16 G4/32', 'master-scores' ) }
 					/>
 				</PanelBody>
 			</InspectorControls>
