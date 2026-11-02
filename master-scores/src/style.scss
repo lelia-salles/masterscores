@@ -61,3 +61,19 @@
 	outline: 2px solid #2271b1;
 	outline-offset: 2px;
 }
+
+.master-scores-play-icon {
+	font-size: 0.8rem;
+	line-height: 1;
+	display: inline-flex;
+	align-items: center;
+}
+
+.master-scores-play.is-playing {
+	background: #b32d2e;
+	border-color: #b32d2e;
+}
+
+.master-scores-play.is-playing:hover {
+	background: #8c2324;
+}

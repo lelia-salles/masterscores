@@ -1,0 +1,70 @@
+<?php
+// This file is generated. Do not modify it manually.
+return array(
+	'build' => array(
+		'$schema' => 'https://schemas.wp.org/trunk/block.json',
+		'apiVersion' => 3,
+		'name' => 'create-block/master-scores',
+		'version' => '1.0.0',
+		'title' => 'Master Scores',
+		'category' => 'text',
+		'icon' => 'format-audio',
+		'description' => 'Editable musical score block.',
+		'attributes' => array(
+			'score' => array(
+				'type' => 'object',
+				'default' => array(
+					'id' => 'score-default',
+					'metadata' => array(
+						'title' => 'My First Score',
+						'composer' => 'Composer'
+					),
+					'playback' => array(
+						'bpm' => 120,
+						'swing' => false
+					),
+					'tracks' => array(
+						array(
+							'id' => 'track-001',
+							'name' => 'Piano',
+							'instrumentId' => 'acoustic_grand_piano',
+							'measures' => array(
+								array(
+									'id' => 'measure-001',
+									'index' => 0,
+									'clef' => 'treble',
+									'timeSignature' => '4/4',
+									'keySignature' => 'C',
+									'voices' => array(
+										array(
+											'id' => 'voice-001',
+											'notes' => array(
+												array(
+													'id' => 'note-1',
+													'keys' => array(
+														'C4'
+													),
+													'duration' => 'q',
+													'isRest' => false,
+													'dots' => 0
+												)
+											)
+										)
+									)
+								)
+							)
+						)
+					)
+				)
+			)
+		),
+		'supports' => array(
+			'html' => false
+		),
+		'textdomain' => 'master-scores',
+		'editorScript' => 'file:./index.js',
+		'editorStyle' => 'file:./index.css',
+		'style' => 'file:./style-index.css',
+		'render' => 'file:./render.php'
+	)
+);
