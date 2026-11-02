@@ -1,9 +1,61 @@
-/**
- * The following styles get applied inside the editor only.
- *
- * Replace them with your own styles or remove the file completely.
- */
+.master-scores-editor {
+	display: flex;
+	flex-direction: column;
+	gap: 12px;
+}
 
-.wp-block-create-block-master-scores {
-	border: 1px dotted #f00;
+.master-scores-toolbar {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	padding: 8px 12px;
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+}
+
+.master-scores-brand {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+}
+
+.master-scores-brand-icon {
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 28px;
+	height: 28px;
+	background: #1e1e1e;
+	color: #fff;
+	border-radius: 6px;
+}
+
+.master-scores-actions {
+	display: flex;
+	gap: 8px;
+}
+
+.master-scores-button {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	padding: 6px 12px;
+	border: 1px solid #1e1e1e;
+	border-radius: 4px;
+	background: transparent;
+	color: #1e1e1e;
+	font: inherit;
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+
+.master-scores-button-primary {
+	background: #1e1e1e;
+	color: #fff;
+}
+
+.master-scores-button:hover {
+	opacity: 0.9;
 }

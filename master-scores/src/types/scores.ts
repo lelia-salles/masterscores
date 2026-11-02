@@ -43,3 +43,7 @@ export interface ScoreState {
 	playback: ScorePlayback;
 	tracks: ScoreTrack[];
 }
+
+export type BlockAttributes = {
+	score: ScoreState;
+};

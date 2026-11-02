@@ -26,6 +26,7 @@
 	"devDependencies": {
 		"@types/react": "^18.3.31",
 		"@types/wordpress__block-editor": "^15.0.6",
+		"@types/wordpress__blocks": "^15.10.2",
 		"@wordpress/scripts": "^34.0.0",
 		"bestzip": "^4.0.3",
 		"typescript": "^6.0.3"

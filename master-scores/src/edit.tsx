@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from '@wordpress/element';
 import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
+import type { BlockEditProps } from '@wordpress/blocks';
 import {
 	PanelBody,
 	TextControl,
@@ -22,7 +23,7 @@ import {
 import * as Tone from 'tone';
 
 import { initialScoreMock } from './mockScore';
-import { ScoreState, ScoreNote } from './types/scores';
+import { ScoreState, ScoreNote, BlockAttributes } from './types/scores';
 
 const VALID_DURATIONS = ['w', 'h', 'q', '8', '16', '32'] as const;
 
@@ -138,7 +139,7 @@ const renderScoreToElement = async (
 				});
 			}
 
-			// Dots — apply one modifier per dot (buildAndAttach handles chord "all" heads)
+			// Dots — apply one modifier per dot
 			const dots = Math.min(note.dots || 0, 2);
 			for (let i = 0; i < dots; i++) {
 				Dot.buildAndAttach([staveNote], { all: true });
@@ -179,7 +180,10 @@ const formatNotesToString = (notes: ScoreNote[] = []) =>
 		})
 		.join(', ');
 
-export default function Edit({ attributes, setAttributes }) {
+export default function Edit({
+	attributes,
+	setAttributes,
+}: BlockEditProps<BlockAttributes>) {
 	const blockProps = useBlockProps({
 		className: 'wp-block-create-block-master-scores',
 	});

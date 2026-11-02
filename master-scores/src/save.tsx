@@ -1,42 +1,19 @@
-import { useBlockProps } from '@wordpress/block-editor';
+import type { BlockSaveProps } from '@wordpress/blocks';
+import { BlockAttributes } from './types/scores';
 
-export default function save( { attributes } ) {
-	const blockProps = useBlockProps.save();
-
-	const score = attributes.score ?? {
-		metadata: {
-			title: 'Master Scores',
-			composer: 'Composer',
-		},
-	};
-
+export default function save({ attributes }: BlockSaveProps<BlockAttributes>) {
+	const { score } = attributes;
 	return (
-		<div
-			{ ...blockProps }
-			className="wp-block-create-block-master-scores"
-			data-score={ JSON.stringify( score ) }
-		>
-			<div className="master-scores-frontend">
-				<div className="master-scores-frontend-header">
-					<div>
-						<div className="master-scores-frontend-title">
-							{ score.metadata?.title || 'Master Scores' }
-						</div>
-						<div className="master-scores-frontend-composer">
-							{ score.metadata?.composer || '' }
-						</div>
-					</div>
-
-					<button
-						type="button"
-						className="master-scores-button master-scores-button-primary master-scores-play-btn"
-					>
-						Tocar
-					</button>
+		<div className="wp-block-create-block-master-scores">
+			<div className="master-scores-score-panel">
+				<div className="master-scores-header">
+					<h2>{score.metadata.title}</h2>
+					<p>{score.metadata.composer}</p>
 				</div>
-
-				{/* Contentor reservado para o VexFlow desenhar a pauta no frontend */}
-				<div className="master-scores-canvas-container"></div>
+				<div
+					className="master-scores-canvas"
+					data-score={JSON.stringify(score)}
+				/>
 			</div>
 		</div>
 	);
