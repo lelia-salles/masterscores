@@ -29,6 +29,7 @@
 		"@types/wordpress__blocks": "^15.10.2",
 		"@wordpress/scripts": "^34.0.0",
 		"bestzip": "^4.0.3",
+		"copy-webpack-plugin": "^14.0.0",
 		"typescript": "^6.0.3"
 	},
 	"allowScripts": {
