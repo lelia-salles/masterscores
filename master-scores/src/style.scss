@@ -77,3 +77,29 @@
 .master-scores-play.is-playing:hover {
 	background: #8c2324;
 }
+
+.master-scores-measure-highlight {
+	fill: transparent;
+	stroke: transparent;
+	pointer-events: none;
+	transition: fill 0.12s ease-out, stroke 0.12s ease-out;
+}
+
+.master-scores-measure-highlight.is-active {
+	fill: rgba(255, 200, 60, 0.28);
+	stroke: rgba(255, 160, 0, 0.5);
+	stroke-width: 1;
+}
+
+.master-scores-note {
+	cursor: pointer;
+	transition: filter 0.1s ease-out;
+}
+
+.master-scores-note:hover {
+	filter: drop-shadow(0 0 3px rgba(60, 130, 200, 0.75));
+}
+
+.master-scores-note.master-scores-selected {
+	filter: drop-shadow(0 0 4px rgba(60, 130, 200, 1)) drop-shadow(0 0 2px rgba(60, 130, 200, 0.9));
+}

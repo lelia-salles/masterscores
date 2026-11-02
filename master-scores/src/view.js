@@ -14,7 +14,6 @@ import * as Tone from 'tone';
 /* Constants                                                                  */
 /* -------------------------------------------------------------------------- */
 
-// Must match the constants in edit.tsx so editor preview and frontend agree.
 const MEASURE_WIDTH = 240;
 const LINE_HEIGHT = 150;
 const LEFT_MARGIN = 10;
@@ -75,14 +74,15 @@ const ensureFonts = () => {
 
 /**
  * Renders every measure of the first track, wrapping to new lines when the
- * container width is exhausted. Clef + key signature repeat at the start of
- * each line; the time signature only appears on the very first measure.
+ * container width is exhausted, and returns a handle whose `setActiveMeasure`
+ * toggles the amber highlight for the given measure (or clears all when
+ * called with `null`).
  */
 const renderScore = async (container, score) => {
-	if (!container || !score?.tracks?.length) return false;
+	if (!container || !score?.tracks?.length) return null;
 
 	const measures = score.tracks[0]?.measures;
-	if (!measures?.length) return false;
+	if (!measures?.length) return null;
 
 	await ensureFonts();
 
@@ -98,14 +98,35 @@ const renderScore = async (container, score) => {
 	renderer.resize(width, totalHeight);
 	const context = renderer.getContext();
 
+	// VexFlow creates the SVG element inside the container during resize().
+	const svg = container.querySelector('svg');
+	if (!svg) return null;
+
+	/** @type {SVGRectElement[]} */
+	const highlightRects = [];
+
 	measures.forEach((measure, index) => {
 		const line = Math.floor(index / perLine);
 		const col = index % perLine;
 		const x = LEFT_MARGIN + col * MEASURE_WIDTH;
 		const y = TOP_MARGIN + line * LINE_HEIGHT;
 
-		const stave = new Stave(x, y, MEASURE_WIDTH);
+		// --- Highlight band, inserted first so it stays behind every stave ---
+		const rect = document.createElementNS(
+			'http://www.w3.org/2000/svg',
+			'rect'
+		);
+		rect.setAttribute('class', 'master-scores-measure-highlight');
+		rect.setAttribute('x', String(x));
+		rect.setAttribute('y', String(y - 20));
+		rect.setAttribute('width', String(MEASURE_WIDTH));
+		rect.setAttribute('height', '100');
+		rect.setAttribute('data-measure-index', String(index));
+		svg.insertBefore(rect, svg.firstChild);
+		highlightRects.push(rect);
 
+		// --- Stave ---
+		const stave = new Stave(x, y, MEASURE_WIDTH);
 		if (col === 0) {
 			stave.addClef(measure.clef || 'treble');
 			if (measure.keySignature && measure.keySignature !== 'C') {
@@ -185,7 +206,17 @@ const renderScore = async (container, score) => {
 		}
 	});
 
-	return true;
+	return {
+		setActiveMeasure(activeIndex) {
+			highlightRects.forEach((rect, i) => {
+				if (i === activeIndex) {
+					rect.classList.add('is-active');
+				} else {
+					rect.classList.remove('is-active');
+				}
+			});
+		},
+	};
 };
 
 /* -------------------------------------------------------------------------- */
@@ -206,10 +237,15 @@ const stopActiveSession = () => {
 };
 
 /**
- * Play the first voice of the first measure of the first track.
- * (Multi-measure playback lands in Feature #3.)
+ * Plays every measure of the first track's first voice.
+ *
+ * @param {object}   score            Parsed ScoreState.
+ * @param {Function} onEnded          Called when playback stops (naturally or not).
+ * @param {Function} [onMeasureChange] Called with the new active measure index
+ *                                     (or `null` at end of score).
+ * @returns {Promise<{stop: Function}|null>} Session object, or null if nothing to play.
  */
-const playScore = async (score, onEnded) => {
+const playScore = async (score, onEnded, onMeasureChange) => {
 	await Tone.start();
 
 	const synth = new Tone.PolySynth(Tone.Synth, {
@@ -235,43 +271,68 @@ const playScore = async (score, onEnded) => {
 		transport.swing = 0;
 	}
 
-	const voice = score.tracks?.[0]?.measures?.[0]?.voices?.[0];
-	if (!voice?.notes?.length) {
+	const measures = score.tracks?.[0]?.measures || [];
+	const hasNotes = measures.some(
+		(m) => m?.voices?.[0]?.notes?.length
+	);
+	if (!hasNotes) {
 		synth.dispose();
 		return null;
 	}
 
 	const bpm = score.playback?.bpm || 120;
 	const secondsPerBeat = 60 / bpm;
-
 	let secondsAccumulated = 0;
 
-	voice.notes.forEach((note) => {
-		const toneDuration = mapDurationToTone(
-			note.duration,
-			note.dots || 0
-		);
+	measures.forEach((measure, measureIndex) => {
+		const voice = measure?.voices?.[0];
+		if (!voice?.notes?.length) return;
 
-		if (!note.isRest && note.keys && note.keys.length > 0) {
-			const cleanKeys = note.keys.map((k) => {
-				const m = k.trim().match(/^([a-gA-G])(#|b)?(\d)$/);
-				return m
-					? `${m[1].toUpperCase()}${m[2] || ''}${m[3]}`
-					: 'C4';
-			});
+		// Highlight this measure at the moment it begins.
+		const measureStart = secondsAccumulated;
+		transport.schedule((time) => {
+			Tone.Draw.schedule(() => {
+				if (onMeasureChange) onMeasureChange(measureIndex);
+			}, time);
+		}, measureStart);
 
-			transport.schedule((time) => {
-				synth.triggerAttackRelease(cleanKeys, toneDuration, time);
-			}, secondsAccumulated);
-		}
+		voice.notes.forEach((note) => {
+			const toneDuration = mapDurationToTone(
+				note.duration,
+				note.dots || 0
+			);
 
-		secondsAccumulated +=
-			durationToBeats(note.duration, note.dots || 0) *
-			secondsPerBeat;
+			if (!note.isRest && note.keys && note.keys.length > 0) {
+				const cleanKeys = note.keys.map((k) => {
+					const m = k.trim().match(/^([a-gA-G])(#|b)?(\d)$/);
+					return m
+						? `${m[1].toUpperCase()}${m[2] || ''}${m[3]}`
+						: 'C4';
+				});
+
+				transport.schedule((time) => {
+					synth.triggerAttackRelease(
+						cleanKeys,
+						toneDuration,
+						time
+					);
+				}, secondsAccumulated);
+			}
+
+			secondsAccumulated +=
+				durationToBeats(note.duration, note.dots || 0) *
+				secondsPerBeat;
+		});
 	});
 
+	// Natural end of score: notify UI, clear highlight, clean up.
 	transport.schedule((time) => {
 		Tone.Draw.schedule(() => {
+			try {
+				if (onMeasureChange) onMeasureChange(null);
+			} catch (_) {
+				/* noop */
+			}
 			try {
 				onEnded && onEnded();
 			} catch (_) {
@@ -306,6 +367,7 @@ const playScore = async (score, onEnded) => {
 			} catch (_) {
 				/* noop */
 			}
+			if (onMeasureChange) onMeasureChange(null);
 			if (onEnded) onEnded();
 		},
 	};
@@ -315,11 +377,17 @@ const playScore = async (score, onEnded) => {
 /* Play button                                                                */
 /* -------------------------------------------------------------------------- */
 
+// Frontend render handles keyed by canvas so a resize (which replaces the
+// SVG) keeps the play button pointing at the *current* handle.
+const renderHandles = new WeakMap();
+
 const attachPlayButton = (canvas, score) => {
 	const wrapper = canvas.parentElement;
 	if (!wrapper) return;
 
 	if (wrapper.querySelector('.master-scores-play')) return;
+
+	const getHandle = () => renderHandles.get(canvas);
 
 	const btn = document.createElement('button');
 	btn.type = 'button';
@@ -355,13 +423,19 @@ const attachPlayButton = (canvas, score) => {
 		stopActiveSession();
 
 		try {
-			const newSession = await playScore(score, () => {
-				if (session === newSession) {
-					session = null;
-					activeSession = null;
-					setLabel(false);
+			const newSession = await playScore(
+				score,
+				() => {
+					if (session === newSession) {
+						session = null;
+						activeSession = null;
+						setLabel(false);
+					}
+				},
+				(measureIndex) => {
+					getHandle()?.setActiveMeasure(measureIndex);
 				}
-			});
+			);
 
 			if (newSession) {
 				session = newSession;
@@ -373,6 +447,7 @@ const attachPlayButton = (canvas, score) => {
 			session = null;
 			activeSession = null;
 			setLabel(false);
+			getHandle()?.setActiveMeasure(null);
 		}
 	});
 };
@@ -399,8 +474,11 @@ const init = async () => {
 		}
 
 		try {
-			const ok = await renderScore(canvas, score);
-			if (ok) attachPlayButton(canvas, score);
+			const handle = await renderScore(canvas, score);
+			if (handle) {
+				renderHandles.set(canvas, handle);
+				attachPlayButton(canvas, score);
+			}
 		} catch (e) {
 			console.error('Master Scores: failed to render block', e);
 		}
@@ -413,7 +491,7 @@ if (document.readyState === 'loading') {
 	init();
 }
 
-/* Debounced resize re-render — recomputes line wrapping. */
+/* Debounced resize re-render — recomputes line wrapping and refreshes handle. */
 let resizeTimer;
 window.addEventListener('resize', () => {
 	clearTimeout(resizeTimer);
@@ -425,7 +503,8 @@ window.addEventListener('resize', () => {
 				if (!raw) return;
 				try {
 					const score = JSON.parse(raw);
-					await renderScore(canvas, score);
+					const handle = await renderScore(canvas, score);
+					if (handle) renderHandles.set(canvas, handle);
 				} catch (_) {
 					/* noop */
 				}

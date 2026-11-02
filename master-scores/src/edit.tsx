@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from '@wordpress/element';
+import { useCallback, useEffect, useRef, useState } from '@wordpress/element';
 import { useBlockProps, InspectorControls } from '@wordpress/block-editor';
 import type { BlockEditProps } from '@wordpress/blocks';
 import {
@@ -7,9 +7,10 @@ import {
 	RangeControl,
 	ToggleControl,
 	TextareaControl,
+	Button,
 } from '@wordpress/components';
 import { __ } from '@wordpress/i18n';
-import { Play, Square, Save, Music } from 'lucide-react';
+import { Play, Square, Save, Music, Plus, Trash } from 'lucide-react';
 import {
 	Renderer,
 	Stave,
@@ -24,16 +25,40 @@ import * as Tone from 'tone';
 
 import { initialScoreMock } from './mockScore';
 import { ScoreState, ScoreNote, BlockAttributes } from './types/scores';
+import { transposeKey, setKeyAccidental } from './utils/pitch';
+
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
 
 const VALID_DURATIONS = ['w', 'h', 'q', '8', '16', '32'] as const;
+const DURATION_OPTIONS = ['w', 'h', 'q', '8', '16', '32'] as const;
+
+const MEASURE_WIDTH = 240;
+const LINE_HEIGHT = 150;
+const LEFT_MARGIN = 10;
+const TOP_MARGIN = 20;
+
+type RenderHandle = {
+	setActiveMeasure: (index: number | null) => void;
+	setSelectedNote: (
+		measureIndex: number | null,
+		noteIndex: number | null
+	) => void;
+};
+
+type Selection = {
+	measureIndex: number;
+	noteIndex: number;
+};
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
 
 const cloneScore = (score: ScoreState): ScoreState =>
 	JSON.parse(JSON.stringify(score));
 
-/**
- * Maps a VexFlow duration to a Tone.js duration string,
- * including dotted variants (Tone uses `"4n."` for a dotted quarter, `"4n.."` for double-dotted).
- */
 const mapDurationToTone = (duration: string, dots = 0): string => {
 	const base: Record<string, string> = {
 		w: '1n',
@@ -49,23 +74,15 @@ const mapDurationToTone = (duration: string, dots = 0): string => {
 	return baseName;
 };
 
-/**
- * Normaliza uma tecla para o formato `Letter[#|b]Octave` (ex.: `C4`, `Bb4`, `F#3`).
- * Aceita oitavas 0–8 (piano range completo).
- * Retorna `null` se a tecla não for válida.
- */
 const normalizeKey = (raw: string): string | null => {
 	const trimmed = raw.trim();
 	if (!trimmed) return null;
 	const formatted =
 		trimmed.charAt(0).toUpperCase() + trimmed.slice(1).toLowerCase();
-	if (! /^[A-G](#|b)?[0-8]$/.test(formatted)) {
-		return null;
-	}
+	if (! /^[A-G](#|b)?[0-8]$/.test(formatted)) return null;
 	return formatted;
 };
 
-// Garante que a fonte Bravura está carregada tanto na janela principal como no iframe do editor
 const ensureFontsInDocument = async (el: HTMLElement | null) => {
 	await VexFlow.loadFonts('Bravura', 'Academico');
 	const ownerDoc = el?.ownerDocument;
@@ -81,96 +98,193 @@ const ensureFontsInDocument = async (el: HTMLElement | null) => {
 	}
 };
 
+/* -------------------------------------------------------------------------- */
+/* Rendering                                                                  */
+/* -------------------------------------------------------------------------- */
+
 const renderScoreToElement = async (
 	container: HTMLDivElement | null,
 	width: number,
-	height: number,
-	score: ScoreState | undefined
-) => {
-	if (!container || !score?.tracks?.length) return;
+	score: ScoreState | undefined,
+	onNoteClick?: (
+		measureIndex: number | null,
+		noteIndex: number | null
+	) => void
+): Promise<RenderHandle | null> => {
+	if (!container || !score?.tracks?.length) return null;
 
-	const track = score.tracks[0];
-	const measure = track?.measures?.[0];
-	const voiceData = measure?.voices?.[0];
-	if (!measure || !voiceData) return;
+	const measures = score.tracks[0]?.measures;
+	if (!measures?.length) return null;
 
 	await ensureFontsInDocument(container);
-
 	container.innerHTML = '';
 
-	const renderer = new Renderer(container, Renderer.Backends.SVG);
-	renderer.resize(width, height);
+	const usableWidth = Math.max(width - LEFT_MARGIN * 2, MEASURE_WIDTH);
+	const perLine = Math.max(1, Math.floor(usableWidth / MEASURE_WIDTH));
+	const lines = Math.ceil(measures.length / perLine);
+	const totalHeight = TOP_MARGIN + lines * LINE_HEIGHT + 40;
 
+	const renderer = new Renderer(container, Renderer.Backends.SVG);
+	renderer.resize(width, totalHeight);
 	const context = renderer.getContext();
 
-	const stave = new Stave(10, 40, Math.max(width - 20, 200));
-	stave
-		.addClef(measure.clef || 'treble')
-		.addTimeSignature(measure.timeSignature || '4/4');
-	stave.setContext(context).draw();
+	const svg = container.querySelector('svg');
+	if (!svg) return null;
 
-	if (!voiceData.notes || voiceData.notes.length === 0) return;
+	const highlightRects: SVGRectElement[] = [];
 
-	try {
-		const vexNotes = voiceData.notes.map((note) => {
-			const isRest = note.isRest || !note.keys || note.keys.length === 0;
-			const mappedKeys = isRest
-				? ['b/4']
-				: note.keys.map((key) => {
-					const cleanKey = key.trim().toLowerCase();
-					return cleanKey.replace(/^([a-g])(#|b)?(\d)$/, '$1$2/$3');
+	measures.forEach((measure, index) => {
+		const line = Math.floor(index / perLine);
+		const col = index % perLine;
+		const x = LEFT_MARGIN + col * MEASURE_WIDTH;
+		const y = TOP_MARGIN + line * LINE_HEIGHT;
+
+		const rect = document.createElementNS(
+			'http://www.w3.org/2000/svg',
+			'rect'
+		);
+		rect.setAttribute('class', 'master-scores-measure-highlight');
+		rect.setAttribute('x', String(x));
+		rect.setAttribute('y', String(y - 20));
+		rect.setAttribute('width', String(MEASURE_WIDTH));
+		rect.setAttribute('height', '100');
+		rect.setAttribute('data-measure-index', String(index));
+		svg.insertBefore(rect, svg.firstChild);
+		highlightRects.push(rect);
+
+		const stave = new Stave(x, y, MEASURE_WIDTH);
+		if (col === 0) {
+			stave.addClef(measure.clef || 'treble');
+			if (measure.keySignature && measure.keySignature !== 'C') {
+				stave.addKeySignature(measure.keySignature);
+			}
+		}
+		if (index === 0) {
+			stave.addTimeSignature(measure.timeSignature || '4/4');
+		}
+		stave.setContext(context).draw();
+
+		const voiceData = measure?.voices?.[0];
+		if (!voiceData?.notes?.length) return;
+
+		const groupsBefore =
+			svg.querySelectorAll('g.vf-stavenote').length;
+
+		try {
+			const vexNotes = voiceData.notes.map((note) => {
+				const isRest =
+					note.isRest || !note.keys || note.keys.length === 0;
+				const mappedKeys = isRest
+					? ['b/4']
+					: note.keys.map((key) => {
+						const cleanKey = key.trim().toLowerCase();
+						return cleanKey.replace(
+							/^([a-g])(#|b)?(\d)$/,
+							'$1$2/$3'
+						);
+					});
+
+				const staveNote = new StaveNote({
+					clef: measure.clef || 'treble',
+					keys: mappedKeys,
+					duration: isRest
+						? `${note.duration || 'q'}r`
+						: note.duration || 'q',
 				});
 
-			const staveNote = new StaveNote({
-				clef: measure.clef || 'treble',
-				keys: mappedKeys,
-				duration: isRest
-					? `${note.duration || 'q'}r`
-					: note.duration || 'q',
+				if (!isRest) {
+					note.keys.forEach((key, idx) => {
+						const match = key.trim().match(/^[a-gA-G](#|b)\d$/);
+						if (match && match[1]) {
+							staveNote.addModifier(
+								new Accidental(match[1]),
+								idx
+							);
+						}
+					});
+				}
+
+				const dots = Math.min(note.dots || 0, 2);
+				for (let i = 0; i < dots; i++) {
+					Dot.buildAndAttach([staveNote], { all: true });
+				}
+
+				return staveNote;
 			});
 
-			// Accidentals (only for non-rests)
-			if (!isRest) {
-				note.keys.forEach((key, idx) => {
-					const match = key.trim().match(/^[a-gA-G](#|b)\d$/);
-					if (match && match[1]) {
-						staveNote.addModifier(new Accidental(match[1]), idx);
-					}
+			const [numBeats, beatValue] = (measure.timeSignature || '4/4')
+				.split('/')
+				.map(Number);
+			const voice = new Voice({
+				numBeats: numBeats || 4,
+				beatValue: beatValue || 4,
+			});
+			voice.setStrict(false);
+			voice.addTickables(vexNotes);
+
+			const noteWidth = Math.max(
+				80,
+				stave.getNoteEndX() - stave.getNoteStartX() - 10
+			);
+			new Formatter().joinVoices([voice]).format([voice], noteWidth);
+			voice.draw(context, stave);
+
+			// Tag this measure's newly drawn note groups so clicks can be
+			// mapped back to { measureIndex, noteIndex }.
+			const allGroups = Array.from(
+				svg.querySelectorAll('g.vf-stavenote')
+			);
+			const newGroups = allGroups.slice(groupsBefore);
+
+			newGroups.forEach((g, noteIdx) => {
+				g.classList.add('master-scores-note');
+				g.setAttribute('data-measure-index', String(index));
+				g.setAttribute('data-note-index', String(noteIdx));
+				g.addEventListener('click', (e) => {
+					e.stopPropagation();
+					onNoteClick?.(index, noteIdx);
 				});
-			}
+			});
+		} catch (error) {
+			console.error(`Erro ao renderizar compasso ${index}:`, error);
+		}
+	});
 
-			// Dots — apply one modifier per dot
-			const dots = Math.min(note.dots || 0, 2);
-			for (let i = 0; i < dots; i++) {
-				Dot.buildAndAttach([staveNote], { all: true });
-			}
+	// Clicking empty staff area deselects.
+	svg.addEventListener('click', (e) => {
+		const target = e.target as Element;
+		if (!target.closest('g.vf-stavenote')) {
+			onNoteClick?.(null, null);
+		}
+	});
 
-			return staveNote;
-		});
-
-		const [numBeats, beatValue] = (measure.timeSignature || '4/4')
-			.split('/')
-			.map(Number);
-		const voice = new Voice({
-			numBeats: numBeats || 4,
-			beatValue: beatValue || 4,
-		});
-		voice.setStrict(false);
-		voice.addTickables(vexNotes);
-
-		new Formatter()
-			.joinVoices([voice])
-			.format([voice], Math.max(width - 90, 150));
-		voice.draw(context, stave);
-	} catch (error) {
-		console.error('Erro ao renderizar a pauta VexFlow:', error);
-	}
+	return {
+		setActiveMeasure(activeIndex) {
+			highlightRects.forEach((rect, i) => {
+				if (i === activeIndex) {
+					rect.classList.add('is-active');
+				} else {
+					rect.classList.remove('is-active');
+				}
+			});
+		},
+		setSelectedNote(measureIndex, noteIndex) {
+			svg.querySelectorAll('g.vf-stavenote.master-scores-selected').forEach(
+				(el) => el.classList.remove('master-scores-selected')
+			);
+			if (measureIndex === null || noteIndex === null) return;
+			const el = svg.querySelector(
+				`g.vf-stavenote[data-measure-index="${measureIndex}"][data-note-index="${noteIndex}"]`
+			);
+			el?.classList.add('master-scores-selected');
+		},
+	};
 };
 
-/**
- * Lossless serialization: every note/rest carries its duration so the textarea round-trip
- * does not silently convert durations to quarter notes.
- */
+/* -------------------------------------------------------------------------- */
+/* Note <-> string                                                           */
+/* -------------------------------------------------------------------------- */
+
 const formatNotesToString = (notes: ScoreNote[] = []) =>
 	notes
 		.map((n) => {
@@ -179,6 +293,10 @@ const formatNotesToString = (notes: ScoreNote[] = []) =>
 			return n.keys.map((k) => `${k}/${dur}`).join(' ');
 		})
 		.join(', ');
+
+/* -------------------------------------------------------------------------- */
+/* Component                                                                  */
+/* -------------------------------------------------------------------------- */
 
 export default function Edit({
 	attributes,
@@ -189,19 +307,58 @@ export default function Edit({
 	});
 
 	const score: ScoreState = attributes.score ?? initialScoreMock;
+	const measures = score.tracks?.[0]?.measures ?? [];
 
 	const scoreContainerRef = useRef<HTMLDivElement>(null);
 	const panelRef = useRef<HTMLDivElement>(null);
 
 	const [isPlaying, setIsPlaying] = useState(false);
 	const [canvasWidth, setCanvasWidth] = useState(600);
+	const [currentMeasureIndex, setCurrentMeasureIndex] = useState(0);
+	const [selection, setSelection] = useState<Selection | null>(null);
+
+	const safeMeasureIndex = Math.min(
+		currentMeasureIndex,
+		Math.max(0, measures.length - 1)
+	);
+
 	const [notesInput, setNotesInput] = useState(() =>
-		formatNotesToString(
-			score.tracks?.[0]?.measures?.[0]?.voices?.[0]?.notes
-		)
+		formatNotesToString(measures[0]?.voices?.[0]?.notes)
 	);
 
 	const synthRef = useRef<Tone.PolySynth | null>(null);
+	const renderHandleRef = useRef<RenderHandle | null>(null);
+	const activeMeasureRef = useRef<number | null>(null);
+
+	/* -------- Derived selected note -------- */
+
+	const selectedNote =
+		selection != null
+			? measures[selection.measureIndex]?.voices?.[0]?.notes?.[
+			selection.noteIndex
+			] ?? null
+			: null;
+
+	/* -------- Stable click callback (selection toggle) -------- */
+
+	const handleNoteClick = useCallback(
+		(measureIndex: number | null, noteIndex: number | null) => {
+			if (measureIndex === null || noteIndex === null) {
+				setSelection(null);
+				return;
+			}
+			setSelection((prev) =>
+				prev &&
+					prev.measureIndex === measureIndex &&
+					prev.noteIndex === noteIndex
+					? null
+					: { measureIndex, noteIndex }
+			);
+		},
+		[]
+	);
+
+	/* -------- Effects -------- */
 
 	useEffect(() => {
 		if (!panelRef.current) return;
@@ -214,22 +371,155 @@ export default function Edit({
 		return () => resizeObserver.disconnect();
 	}, []);
 
+	// Re-render staff, reapply active-measure + selection after render.
 	useEffect(() => {
+		let cancelled = false;
 		const safeWidth = Math.max(canvasWidth, 280);
-		renderScoreToElement(scoreContainerRef.current, safeWidth, 220, score);
+		(async () => {
+			const handle = await renderScoreToElement(
+				scoreContainerRef.current,
+				safeWidth,
+				score,
+				handleNoteClick
+			);
+			if (cancelled) return;
+			renderHandleRef.current = handle;
+			if (!handle) return;
+			if (activeMeasureRef.current !== null) {
+				handle.setActiveMeasure(activeMeasureRef.current);
+			}
+			if (selection) {
+				handle.setSelectedNote(
+					selection.measureIndex,
+					selection.noteIndex
+				);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [score, canvasWidth]);
+
+	// Cheap path: selection changed but no re-render needed.
+	useEffect(() => {
+		const handle = renderHandleRef.current;
+		if (!handle) return;
+		if (selection) {
+			handle.setSelectedNote(selection.measureIndex, selection.noteIndex);
+		} else {
+			handle.setSelectedNote(null, null);
+		}
+	}, [selection]);
+
+	// Sync textarea with measure switch.
+	useEffect(() => {
+		setNotesInput(
+			formatNotesToString(measures[safeMeasureIndex]?.voices?.[0]?.notes)
+		);
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [safeMeasureIndex]);
+
+	// Clear selection if the referenced note no longer exists.
+	useEffect(() => {
+		if (!selection) return;
+		const exists =
+			measures[selection.measureIndex]?.voices?.[0]?.notes?.[
+			selection.noteIndex
+			] !== undefined;
+		if (!exists) setSelection(null);
+	}, [measures, selection]);
 
 	useEffect(() => {
 		return () => {
 			if (synthRef.current) synthRef.current.dispose();
 			Tone.Transport.stop();
 			Tone.Transport.cancel(0);
+			activeMeasureRef.current = null;
 		};
 	}, []);
+
+	/* -------- Score mutation helpers -------- */
 
 	const updateScore = (newScore: ScoreState) => {
 		setAttributes({ score: newScore });
 	};
+
+	const updateSelectedNote = (patch: Partial<ScoreNote>) => {
+		if (!selection) return;
+		const newScore = cloneScore(score);
+		const notes =
+			newScore.tracks?.[0]?.measures?.[selection.measureIndex]?.voices?.[0]
+				?.notes;
+		if (!notes?.[selection.noteIndex]) return;
+		notes[selection.noteIndex] = {
+			...notes[selection.noteIndex],
+			...patch,
+		};
+		updateScore(newScore);
+	};
+
+	/* -------- Palette operations -------- */
+
+	const transposeNote = (semitones: number) => {
+		if (!selectedNote || selectedNote.isRest) return;
+		const newKeys = selectedNote.keys.map((k) =>
+			transposeKey(k, semitones)
+		);
+		updateSelectedNote({ keys: newKeys });
+	};
+
+	const setAccidental = (acc: '' | '#' | 'b') => {
+		if (!selectedNote || selectedNote.isRest) return;
+		const newKeys = selectedNote.keys.map((k) =>
+			setKeyAccidental(k, acc)
+		);
+		updateSelectedNote({ keys: newKeys });
+	};
+
+	const setDuration = (duration: string) =>
+		updateSelectedNote({ duration });
+
+	const cycleDots = () => {
+		if (!selectedNote) return;
+		updateSelectedNote({
+			dots: ((selectedNote.dots || 0) + 1) % 3,
+		});
+	};
+
+	const deleteSelectedNote = () => {
+		if (!selection) return;
+		const newScore = cloneScore(score);
+		const notes =
+			newScore.tracks?.[0]?.measures?.[selection.measureIndex]?.voices?.[0]
+				?.notes;
+		if (!notes) return;
+		notes.splice(selection.noteIndex, 1);
+		updateScore(newScore);
+		setSelection(null);
+	};
+
+	const addNote = (isRest: boolean) => {
+		const newScore = cloneScore(score);
+		const voice =
+			newScore.tracks?.[0]?.measures?.[safeMeasureIndex]?.voices?.[0];
+		if (!voice) return;
+
+		voice.notes.push({
+			id: `note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+			keys: isRest ? [] : ['C4'],
+			duration: 'q',
+			isRest,
+			dots: 0,
+		});
+		updateScore(newScore);
+		setSelection({
+			measureIndex: safeMeasureIndex,
+			noteIndex: voice.notes.length - 1,
+		});
+	};
+
+	/* -------- Textarea editing (unchanged) -------- */
 
 	const handleNotesChange = (val: string) => {
 		setNotesInput(val);
@@ -242,7 +532,6 @@ export default function Edit({
 		const validNotes: ScoreNote[] = [];
 
 		rawTokens.forEach((token, index) => {
-			// REST (with optional duration, e.g. REST/w, REST/h)
 			if (token.toUpperCase().startsWith('REST')) {
 				let dur = 'q';
 				const [, rawDur] = token.split('/');
@@ -277,7 +566,9 @@ export default function Edit({
 
 				if (hasDuration && rawDur) {
 					const cleanDur = rawDur.trim().toLowerCase();
-					if ((VALID_DURATIONS as readonly string[]).includes(cleanDur)) {
+					if (
+						(VALID_DURATIONS as readonly string[]).includes(cleanDur)
+					) {
 						currentDuration = cleanDur;
 					}
 				}
@@ -294,20 +585,74 @@ export default function Edit({
 			}
 		});
 
-		if (validNotes.length > 0) {
+		if (validNotes.length > 0 || val.trim() === '') {
 			const newScore = cloneScore(score);
-			if (newScore.tracks?.[0]?.measures?.[0]?.voices?.[0]) {
-				newScore.tracks[0].measures[0].voices[0].notes = validNotes;
+			if (
+				newScore.tracks?.[0]?.measures?.[safeMeasureIndex]?.voices?.[0]
+			) {
+				newScore.tracks[0].measures[safeMeasureIndex].voices[0].notes =
+					validNotes;
 				updateScore(newScore);
 			}
 		}
 	};
+
+	/* -------- Measure management -------- */
+
+	const addMeasure = () => {
+		const newScore = cloneScore(score);
+		const track = newScore.tracks?.[0];
+		if (!track) return;
+
+		const refMeasure = track.measures[track.measures.length - 1];
+		const newIndex = track.measures.length;
+		const now = Date.now();
+
+		track.measures.push({
+			id: `measure-${now}`,
+			index: newIndex,
+			clef: refMeasure?.clef || 'treble',
+			timeSignature: refMeasure?.timeSignature || '4/4',
+			keySignature: refMeasure?.keySignature || 'C',
+			voices: [{ id: `voice-${now}`, notes: [] }],
+		});
+
+		updateScore(newScore);
+		setCurrentMeasureIndex(newIndex);
+		setSelection(null);
+	};
+
+	const removeMeasure = () => {
+		const newScore = cloneScore(score);
+		const track = newScore.tracks?.[0];
+		if (!track || track.measures.length <= 1) return;
+
+		track.measures.pop();
+		track.measures.forEach((m, i) => {
+			m.index = i;
+		});
+		updateScore(newScore);
+
+		if (safeMeasureIndex >= track.measures.length) {
+			setCurrentMeasureIndex(track.measures.length - 1);
+			setSelection(null);
+		} else if (
+			selection &&
+			selection.measureIndex >= track.measures.length
+		) {
+			setSelection(null);
+		}
+	};
+
+	/* -------- Playback (unchanged) -------- */
 
 	const togglePlayback = async () => {
 		if (isPlaying) {
 			Tone.Transport.stop();
 			Tone.Transport.cancel(0);
 			setIsPlaying(false);
+			activeMeasureRef.current = null;
+			renderHandleRef.current?.setActiveMeasure(null);
 			return;
 		}
 
@@ -321,7 +666,6 @@ export default function Edit({
 		Tone.Transport.cancel(0);
 		Tone.Transport.bpm.value = score.playback.bpm || 120;
 
-		// Swing is applied to 8th-note pairs. 0 = off, 0.5 ≈ heavy swing.
 		if (score.playback.swing) {
 			Tone.Transport.swing = 0.5;
 			Tone.Transport.swingSubdivision = '8n';
@@ -329,10 +673,24 @@ export default function Edit({
 			Tone.Transport.swing = 0;
 		}
 
+		const track = score.tracks?.[0];
+		const allMeasures = track?.measures ?? [];
+		let anyNotes = false;
 		let currentTime = 0;
-		const voice = score.tracks?.[0]?.measures?.[0]?.voices?.[0];
 
-		if (voice?.notes?.length) {
+		allMeasures.forEach((measure, measureIndex) => {
+			const voice = measure?.voices?.[0];
+			if (!voice?.notes?.length) return;
+			anyNotes = true;
+
+			const measureStart = currentTime;
+			Tone.Transport.schedule((time) => {
+				Tone.Draw.schedule(() => {
+					activeMeasureRef.current = measureIndex;
+					renderHandleRef.current?.setActiveMeasure(measureIndex);
+				}, time);
+			}, measureStart);
+
 			voice.notes.forEach((note) => {
 				const toneDuration = mapDurationToTone(
 					note.duration,
@@ -358,10 +716,14 @@ export default function Edit({
 
 				currentTime += Tone.Time(toneDuration).toSeconds();
 			});
-		}
+		});
+
+		if (!anyNotes) return;
 
 		Tone.Transport.schedule((time) => {
 			Tone.Draw.schedule(() => {
+				activeMeasureRef.current = null;
+				renderHandleRef.current?.setActiveMeasure(null);
 				setIsPlaying(false);
 				Tone.Transport.stop();
 			}, time);
@@ -370,6 +732,8 @@ export default function Edit({
 		Tone.Transport.start();
 		setIsPlaying(true);
 	};
+
+	/* -------- Render -------- */
 
 	return (
 		<div {...blockProps}>
@@ -418,7 +782,229 @@ export default function Edit({
 					/>
 				</PanelBody>
 
+				{/* -------- NEW: note selection palette -------- */}
+				<PanelBody
+					title={__('Nota Selecionada', 'master-scores')}
+					initialOpen={true}
+				>
+					{selectedNote && selection ? (
+						<>
+							<p style={{ marginTop: 0, color: '#666' }}>
+								{__('Compasso', 'master-scores')}{' '}
+								{selection.measureIndex + 1},{' '}
+								{__('nota', 'master-scores')}{' '}
+								{selection.noteIndex + 1}
+								{' — '}
+								{selectedNote.isRest
+									? __('pausa', 'master-scores')
+									: selectedNote.keys.join(', ')}
+							</p>
+
+							{!selectedNote.isRest && (
+								<>
+									<div
+										style={{
+											display: 'flex',
+											gap: 4,
+											marginBottom: 8,
+										}}
+									>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => transposeNote(-1)}
+										>
+											♭ ½ tom
+										</Button>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => transposeNote(1)}
+										>
+											♯ ½ tom
+										</Button>
+									</div>
+
+									<div
+										style={{
+											display: 'flex',
+											gap: 4,
+											marginBottom: 8,
+										}}
+									>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => transposeNote(-12)}
+										>
+											Oitava −
+										</Button>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => transposeNote(12)}
+										>
+											Oitava +
+										</Button>
+									</div>
+
+									<div
+										style={{
+											display: 'flex',
+											gap: 4,
+											marginBottom: 8,
+										}}
+									>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => setAccidental('b')}
+										>
+											♭
+										</Button>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => setAccidental('')}
+										>
+											♮
+										</Button>
+										<Button
+											variant="secondary"
+											style={{ flex: 1 }}
+											onClick={() => setAccidental('#')}
+										>
+											♯
+										</Button>
+									</div>
+								</>
+							)}
+
+							<p
+								style={{
+									margin: '0 0 4px',
+									fontWeight: 500,
+								}}
+							>
+								{__('Duração', 'master-scores')}
+							</p>
+							<div
+								style={{
+									display: 'grid',
+									gridTemplateColumns: 'repeat(6, 1fr)',
+									gap: 4,
+									marginBottom: 8,
+								}}
+							>
+								{DURATION_OPTIONS.map((d) => (
+									<Button
+										key={d}
+										variant={
+											(selectedNote.duration || 'q') === d
+												? 'primary'
+												: 'secondary'
+										}
+										onClick={() => setDuration(d)}
+									>
+										{d}
+									</Button>
+								))}
+							</div>
+
+							<Button
+								variant="secondary"
+								style={{ width: '100%', marginBottom: 8 }}
+								onClick={cycleDots}
+							>
+								{__('Ponto', 'master-scores')} (
+								{selectedNote.dots || 0})
+							</Button>
+
+							<Button
+								variant="secondary"
+								isDestructive
+								style={{ width: '100%' }}
+								onClick={deleteSelectedNote}
+							>
+								{__('Excluir nota', 'master-scores')}
+							</Button>
+						</>
+					) : (
+						<p style={{ marginTop: 0, color: '#666' }}>
+							{__(
+								'Clique numa nota (ou pausa) na pauta para editar. Clique de novo para desselecionar.',
+								'master-scores'
+							)}
+						</p>
+					)}
+
+					<hr
+						style={{
+							margin: '12px 0',
+							border: 0,
+							borderTop: '1px solid #ddd',
+						}}
+					/>
+
+					<p style={{ margin: '0 0 8px', fontWeight: 500 }}>
+						{__('Adicionar ao compasso', 'master-scores')}{' '}
+						{safeMeasureIndex + 1}
+					</p>
+					<div style={{ display: 'flex', gap: 4 }}>
+						<Button
+							variant="secondary"
+							style={{ flex: 1 }}
+							onClick={() => addNote(false)}
+						>
+							+ {__('Nota', 'master-scores')}
+						</Button>
+						<Button
+							variant="secondary"
+							style={{ flex: 1 }}
+							onClick={() => addNote(true)}
+						>
+							+ {__('Pausa', 'master-scores')}
+						</Button>
+					</div>
+				</PanelBody>
+
+				<PanelBody title={__('Estrutura da Partitura', 'master-scores')}>
+					<p style={{ marginTop: 0 }}>
+						{__('Total de compassos:', 'master-scores')}{' '}
+						{measures.length}
+					</p>
+					<div style={{ display: 'flex', gap: 8 }}>
+						<Button variant="secondary" onClick={addMeasure}>
+							<Plus size={14} />
+							{__('Adicionar', 'master-scores')}
+						</Button>
+						<Button
+							variant="secondary"
+							isDestructive
+							onClick={removeMeasure}
+							disabled={measures.length <= 1}
+						>
+							<Trash size={14} />
+							{__('Remover', 'master-scores')}
+						</Button>
+					</div>
+				</PanelBody>
+
 				<PanelBody title={__('Editor de Notas', 'master-scores')}>
+					<RangeControl
+						label={__('Compasso em edição', 'master-scores')}
+						value={safeMeasureIndex}
+						onChange={(val) => {
+							setCurrentMeasureIndex(val ?? 0);
+							setSelection(null);
+						}}
+						min={0}
+						max={Math.max(0, measures.length - 1)}
+						help={__(
+							'Escolha qual compasso o campo abaixo edita. A reprodução toca a partitura inteira.',
+							'master-scores'
+						)}
+					/>
 					<TextareaControl
 						label={__(
 							'Sequência Musical (separada por vírgula)',
