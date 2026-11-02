@@ -7,5 +7,5 @@ import metadata from './block.json';
 
 registerBlockType(metadata.name, {
 	edit: Edit,
-	save,
+	// save: () => null, // not needed for dynamic blocks (render.php)
 });
