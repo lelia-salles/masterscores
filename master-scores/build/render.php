@@ -21,9 +21,10 @@ if ( empty( $score ) ) {
 }
 
 // Sanity-check the shape so a corrupted attribute cannot break the frontend.
-if ( empty( $score['tracks'][0]['measures'] ) ) {
+if ( empty( $score['tracks'][0]['measures'][0]['voices'][0]['notes'] ) ) {
 	return;
 }
+
 $json = wp_json_encode( $score );
 
 // Absolute path to the built view.js and its public URL.
