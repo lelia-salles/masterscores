@@ -10,10 +10,20 @@ import {
 } from 'vexflow';
 import * as Tone from 'tone';
 
-/**
- * Maps a VexFlow duration code (+ dots) to a Tone.js duration string.
- * Tone uses "4n." for dotted quarter, "4n.." for double-dotted.
- */
+/* -------------------------------------------------------------------------- */
+/* Constants                                                                  */
+/* -------------------------------------------------------------------------- */
+
+// Must match the constants in edit.tsx so editor preview and frontend agree.
+const MEASURE_WIDTH = 240;
+const LINE_HEIGHT = 150;
+const LEFT_MARGIN = 10;
+const TOP_MARGIN = 20;
+
+/* -------------------------------------------------------------------------- */
+/* Helpers                                                                    */
+/* -------------------------------------------------------------------------- */
+
 const mapDurationToTone = (duration, dots = 0) => {
 	const base = {
 		w: '1n',
@@ -29,7 +39,6 @@ const mapDurationToTone = (duration, dots = 0) => {
 	return baseName;
 };
 
-/** Duration expressed in beats (quarter = 1 in 4/4). */
 const durationToBeats = (duration, dots = 0) => {
 	const base = { w: 4, h: 2, q: 1, '8': 0.5, '16': 0.25, '32': 0.125 };
 	let beats = base[duration] || 1;
@@ -48,9 +57,6 @@ const ensureFonts = () => {
 	if (!fontsPromise) {
 		fontsPromise = (async () => {
 			try {
-				// VexFlow 5 loads from its default CDN. Local fonts can be
-				// dropped in via @vexflow-fonts + the localize script, but
-				// the CDN path is what actually renders reliably here.
 				await VexFlow.loadFonts('Bravura', 'Academico');
 			} catch (e) {
 				console.warn(
@@ -67,91 +73,117 @@ const ensureFonts = () => {
 /* Rendering                                                                  */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * Renders every measure of the first track, wrapping to new lines when the
+ * container width is exhausted. Clef + key signature repeat at the start of
+ * each line; the time signature only appears on the very first measure.
+ */
 const renderScore = async (container, score) => {
 	if (!container || !score?.tracks?.length) return false;
 
-	const track = score.tracks[0];
-	const measure = track?.measures?.[0];
-	const voiceData = measure?.voices?.[0];
-	if (!measure || !voiceData) return false;
+	const measures = score.tracks[0]?.measures;
+	if (!measures?.length) return false;
 
 	await ensureFonts();
 
 	const width = Math.max(container.clientWidth || 600, 280);
-	const height = 220;
+	const usableWidth = Math.max(width - LEFT_MARGIN * 2, MEASURE_WIDTH);
+	const perLine = Math.max(1, Math.floor(usableWidth / MEASURE_WIDTH));
+	const lines = Math.ceil(measures.length / perLine);
+	const totalHeight = TOP_MARGIN + lines * LINE_HEIGHT + 40;
 
 	container.innerHTML = '';
 
 	const renderer = new Renderer(container, Renderer.Backends.SVG);
-	renderer.resize(width, height);
+	renderer.resize(width, totalHeight);
 	const context = renderer.getContext();
 
-	const stave = new Stave(10, 40, Math.max(width - 20, 200));
-	stave
-		.addClef(measure.clef || 'treble')
-		.addTimeSignature(measure.timeSignature || '4/4');
-	stave.setContext(context).draw();
+	measures.forEach((measure, index) => {
+		const line = Math.floor(index / perLine);
+		const col = index % perLine;
+		const x = LEFT_MARGIN + col * MEASURE_WIDTH;
+		const y = TOP_MARGIN + line * LINE_HEIGHT;
 
-	if (!voiceData.notes || voiceData.notes.length === 0) return true;
+		const stave = new Stave(x, y, MEASURE_WIDTH);
 
-	try {
-		const vexNotes = voiceData.notes.map((note) => {
-			const isRest =
-				note.isRest || !note.keys || note.keys.length === 0;
+		if (col === 0) {
+			stave.addClef(measure.clef || 'treble');
+			if (measure.keySignature && measure.keySignature !== 'C') {
+				stave.addKeySignature(measure.keySignature);
+			}
+		}
+		if (index === 0) {
+			stave.addTimeSignature(measure.timeSignature || '4/4');
+		}
+		stave.setContext(context).draw();
 
-			const mappedKeys = isRest
-				? ['b/4']
-				: note.keys.map((key) => {
-					const clean = key.trim().toLowerCase();
-					return clean.replace(
-						/^([a-g])(#|b)?(\d)$/,
-						'$1$2/$3'
-					);
+		const voiceData = measure?.voices?.[0];
+		if (!voiceData?.notes?.length) return;
+
+		try {
+			const vexNotes = voiceData.notes.map((note) => {
+				const isRest =
+					note.isRest || !note.keys || note.keys.length === 0;
+
+				const mappedKeys = isRest
+					? ['b/4']
+					: note.keys.map((key) => {
+						const clean = key.trim().toLowerCase();
+						return clean.replace(
+							/^([a-g])(#|b)?(\d)$/,
+							'$1$2/$3'
+						);
+					});
+
+				const staveNote = new StaveNote({
+					clef: measure.clef || 'treble',
+					keys: mappedKeys,
+					duration: isRest
+						? `${note.duration || 'q'}r`
+						: note.duration || 'q',
 				});
 
-			const staveNote = new StaveNote({
-				clef: measure.clef || 'treble',
-				keys: mappedKeys,
-				duration: isRest
-					? `${note.duration || 'q'}r`
-					: note.duration || 'q',
+				if (!isRest) {
+					note.keys.forEach((key, idx) => {
+						const m = key.trim().match(/^[a-gA-G](#|b)\d$/);
+						if (m && m[1]) {
+							staveNote.addModifier(new Accidental(m[1]), idx);
+						}
+					});
+				}
+
+				const dots = Math.min(note.dots || 0, 2);
+				for (let i = 0; i < dots; i++) {
+					Dot.buildAndAttach([staveNote], { all: true });
+				}
+
+				return staveNote;
 			});
 
-			if (!isRest) {
-				note.keys.forEach((key, idx) => {
-					const m = key.trim().match(/^[a-gA-G](#|b)\d$/);
-					if (m && m[1]) {
-						staveNote.addModifier(new Accidental(m[1]), idx);
-					}
-				});
-			}
+			const [numBeats, beatValue] = (measure.timeSignature || '4/4')
+				.split('/')
+				.map(Number);
 
-			const dots = Math.min(note.dots || 0, 2);
-			for (let i = 0; i < dots; i++) {
-				Dot.buildAndAttach([staveNote], { all: true });
-			}
+			const voice = new Voice({
+				numBeats: numBeats || 4,
+				beatValue: beatValue || 4,
+			});
+			voice.setStrict(false);
+			voice.addTickables(vexNotes);
 
-			return staveNote;
-		});
-
-		const [numBeats, beatValue] = (measure.timeSignature || '4/4')
-			.split('/')
-			.map(Number);
-
-		const voice = new Voice({
-			numBeats: numBeats || 4,
-			beatValue: beatValue || 4,
-		});
-		voice.setStrict(false);
-		voice.addTickables(vexNotes);
-
-		new Formatter()
-			.joinVoices([voice])
-			.format([voice], Math.max(width - 90, 150));
-		voice.draw(context, stave);
-	} catch (error) {
-		console.error('Master Scores: VexFlow render error', error);
-	}
+			const noteWidth = Math.max(
+				80,
+				stave.getNoteEndX() - stave.getNoteStartX() - 10
+			);
+			new Formatter().joinVoices([voice]).format([voice], noteWidth);
+			voice.draw(context, stave);
+		} catch (error) {
+			console.error(
+				`Master Scores: VexFlow render error (compasso ${index})`,
+				error
+			);
+		}
+	});
 
 	return true;
 };
@@ -160,7 +192,6 @@ const renderScore = async (container, score) => {
 /* Playback                                                                   */
 /* -------------------------------------------------------------------------- */
 
-// Only one block can play at a time across the page.
 let activeSession = null;
 
 const stopActiveSession = () => {
@@ -176,7 +207,7 @@ const stopActiveSession = () => {
 
 /**
  * Play the first voice of the first measure of the first track.
- * Returns a session object with `stop()`, or `null` if nothing to play.
+ * (Multi-measure playback lands in Feature #3.)
  */
 const playScore = async (score, onEnded) => {
 	await Tone.start();
@@ -230,11 +261,7 @@ const playScore = async (score, onEnded) => {
 			});
 
 			transport.schedule((time) => {
-				synth.triggerAttackRelease(
-					cleanKeys,
-					toneDuration,
-					time
-				);
+				synth.triggerAttackRelease(cleanKeys, toneDuration, time);
 			}, secondsAccumulated);
 		}
 
@@ -243,7 +270,6 @@ const playScore = async (score, onEnded) => {
 			secondsPerBeat;
 	});
 
-	// Natural end of score: notify UI and clean up.
 	transport.schedule((time) => {
 		Tone.Draw.schedule(() => {
 			try {
@@ -293,7 +319,6 @@ const attachPlayButton = (canvas, score) => {
 	const wrapper = canvas.parentElement;
 	if (!wrapper) return;
 
-	// Avoid duplicate buttons if init runs more than once.
 	if (wrapper.querySelector('.master-scores-play')) return;
 
 	const btn = document.createElement('button');
@@ -318,7 +343,6 @@ const attachPlayButton = (canvas, score) => {
 	let session = null;
 
 	btn.addEventListener('click', async () => {
-		// User clicked "stop".
 		if (session) {
 			try {
 				session.stop();
@@ -328,12 +352,10 @@ const attachPlayButton = (canvas, score) => {
 			return;
 		}
 
-		// Only one block may play at a time.
 		stopActiveSession();
 
 		try {
 			const newSession = await playScore(score, () => {
-				// Called by natural-end or stop().
 				if (session === newSession) {
 					session = null;
 					activeSession = null;
@@ -391,7 +413,7 @@ if (document.readyState === 'loading') {
 	init();
 }
 
-/* Debounced resize re-render (play button stays outside the canvas). */
+/* Debounced resize re-render — recomputes line wrapping. */
 let resizeTimer;
 window.addEventListener('resize', () => {
 	clearTimeout(resizeTimer);
